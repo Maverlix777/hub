@@ -13,7 +13,9 @@
 - `apps/chat.html`, `chat.js`, `chat.css` — чат с Claude API напрямую из браузера.
 - `tests/check-csp.cjs` — статическая проверка CSP и отсутствия внешних/inline-скриптов во всех страницах.
 - `tests/e2e.cjs` — Playwright: 390/1280 px, плитки, тёмная тема, чат с локальным HTTPS-моком API.
-- Location Fusion и Доктор: плитки "soon", содержание не придумывать, пока владелец не опишет.
+- `manifest.webmanifest`, `icons/` (180/192/512, без альфы), `tools/make-icons.py` — значок на экран телефона (PWA, без service worker).
+- Плитки по данным репо: Location Fusion (`location-fusion-ios`, iOS, "soon": нет подписи Network Extension);
+  Доктор (`doktor`, iOS через SideStore) — ссылка на релизы публичного `doktor-sidestore`. URL-схемы у Доктора нет.
 
 ## Запуск и проверка
 ```sh
@@ -36,3 +38,4 @@ content-type: application/json, anthropic-dangerous-direct-browser-access: true 
 - Ключ: только localStorage браузера. Не в коде, URL, логах, консоли, тексте ошибок, git.
 - Ответ модели — только textContent (или безопасный markdown без innerHTML с непроверенным текстом).
 - Пуш, публикация, хостинг — только после «да» владельца.
+- Хостинг: GitHub Pages. На бесплатном плане только для публичного repo; repo сейчас приватный.

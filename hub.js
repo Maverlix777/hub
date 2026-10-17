@@ -8,8 +8,10 @@
     const tile = document.createElement(ready ? 'a' : 'div');
     tile.className = 'tile' + (ready ? '' : ' soon');
     tile.dataset.id = app.id;
-    if (ready) tile.href = app.href;
-    else tile.setAttribute('aria-disabled', 'true');
+    if (ready) {
+      tile.href = app.href;
+      if (/^https?:/i.test(app.href)) tile.rel = 'noopener noreferrer';
+    } else tile.setAttribute('aria-disabled', 'true');
     const title = document.createElement('span');
     title.className = 'tile-title';
     title.textContent = app.title;

@@ -8,13 +8,19 @@
 <script type="application/json" id="apps">
 [
   { "id": "chat", "title": "Чат", "desc": "Claude API из браузера, ключ хранится только здесь", "status": "ready", "href": "apps/chat.html" },
-  { "id": "location-fusion", "title": "Location Fusion", "desc": "", "status": "soon", "href": "" },
-  { "id": "doktor", "title": "Доктор", "desc": "", "status": "soon", "href": "" }
+  { "id": "location-fusion", "title": "Location Fusion", "desc": "iOS: симуляция геопозиции со встроенным VPN. Не установлено: нет подписи Network Extension", "status": "soon", "href": "" },
+  { "id": "doktor", "title": "Доктор", "desc": "iOS: ИИ-диагност по данным OBD. Релизы для SideStore", "status": "ready", "href": "https://github.com/Maverlix777/doktor-sidestore/releases/latest" }
 ]
 </script>
 <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
 <meta name="referrer" content="no-referrer">
 <meta name="color-scheme" content="light dark">
+<link rel="manifest" href="manifest.webmanifest">
+<link rel="icon" type="image/png" href="icons/icon-192.png">
+<link rel="apple-touch-icon" href="icons/icon-180.png">
+<meta name="apple-mobile-web-app-title" content="Хаб">
+<meta name="theme-color" content="#f6f6f4" media="(prefers-color-scheme: light)">
+<meta name="theme-color" content="#141413" media="(prefers-color-scheme: dark)">
 <title>Хаб</title>
 <link rel="stylesheet" href="style.css">
 </head>

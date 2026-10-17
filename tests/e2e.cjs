@@ -106,7 +106,9 @@ const api = https.createServer({ key: fs.readFileSync(path.join(tmp, 'k.pem')), 
       console.log(`info ${width}px: колонок сетки = ${cols}`);
       await page.screenshot({ path: path.join(SHOTS, `hub-${width}.png`), fullPage: true });
 
-      for (const id of ['location-fusion', 'doktor']) {
+      const dok = await page.locator('.tile[data-id="doktor"]').evaluate((e) => e.tagName + '|' + e.getAttribute('href') + '|' + e.rel);
+      check(`${width}px: «Доктор» ссылка на релизы SideStore`, dok === 'A|https://github.com/Maverlix777/doktor-sidestore/releases/latest|noopener noreferrer', dok);
+      for (const id of ['location-fusion']) {
         const t = page.locator(`.tile[data-id="${id}"]`);
         const tag = await t.evaluate((e) => e.tagName + '|' + e.getAttribute('href') + '|' + e.getAttribute('aria-disabled'));
         await t.click();
@@ -122,6 +124,35 @@ const api = https.createServer({ key: fs.readFileSync(path.join(tmp, 'k.pem')), 
       await page.locator('#hub').click();
       await page.waitForURL('**/index.html');
       check(`${width}px: кнопка «Хаб» возвращает на главную`, page.url() === `${ORIGIN}/index.html`, page.url());
+      await ctx.close();
+    }
+
+    // --- PWA: манифест, значки, устанавливаемость по мнению Chromium ---
+    {
+      const ctx = await browser.newContext({ viewport: { width: 390, height: 844 } });
+      const page = await ctx.newPage(); watch(page);
+      for (const p of ['/index.html', '/apps/chat.html']) {
+        await page.goto(ORIGIN + p);
+        const cdp = await ctx.newCDPSession(page);
+        const man = await cdp.send('Page.getAppManifest');
+        const parsed = man.errors.length === 0 && JSON.parse(man.data || '{}').name === 'Хаб';
+        check(`PWA ${p}: манифест найден и разобран`, parsed && man.url === `${ORIGIN}/manifest.webmanifest`, `${man.url} ошибок ${man.errors.length}`);
+        // Page.getInstallabilityErrors в headless отдаёт [] даже без манифеста, поэтому проверяем поля сами
+        const m = JSON.parse(man.data || '{}');
+        const sizes = (m.icons || []).map((i) => i.sizes);
+        const okFields = m.name && m.start_url && ['standalone', 'fullscreen', 'minimal-ui'].includes(m.display) && sizes.includes('192x192') && sizes.includes('512x512');
+        check(`PWA ${p}: обязательные поля манифеста (name, start_url, display, значки 192/512)`, !!okFields, `${m.display} ${sizes.join(',')}`);
+        const apple = await page.evaluate(() => { const l = document.querySelector('link[rel="apple-touch-icon"]'); return l && l.href; });
+        check(`PWA ${p}: apple-touch-icon`, apple === `${ORIGIN}/icons/icon-180.png`, apple);
+      }
+      for (const s of [180, 192, 512]) {
+        const r = await page.request.get(`${ORIGIN}/icons/icon-${s}.png`);
+        const b = await r.body();
+        const w = b.readUInt32BE(16), h = b.readUInt32BE(20), colorType = b[25];
+        check(`значок ${s}: 200, PNG ${s}x${s}, без альфы`, r.status() === 200 && w === s && h === s && colorType === 2, `${r.status()} ${w}x${h} ct=${colorType}`);
+      }
+      const mr = await page.request.get(`${ORIGIN}/manifest.webmanifest`);
+      console.log('info manifest content-type: ' + mr.headers()['content-type']);
       await ctx.close();
     }
 

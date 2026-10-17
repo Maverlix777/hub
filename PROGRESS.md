@@ -1,19 +1,19 @@
 # PROGRESS
 
-## Сделано (этап 1, 17.10.2026)
-- Хаб: плитки из APPS, 390/1280 px, светлая/тёмная тема по системе, "soon"-плитки неактивны.
-- Чат: ключ в localStorage + «Забыть ключ», модели sonnet/haiku/opus 5.5, системный промпт,
-  история в localStorage + «Очистить», SSE-поток, «Стоп», ошибки HTTP и SSE как есть, ключ скрывается.
-- CSP на всех страницах; `tests/check-csp.cjs` 2/2; `tests/e2e.cjs` 42/42 (дважды).
+## Сделано
+- Этап 1 (17.10.2026): хаб + чат (ключ в localStorage, SSE-поток, стоп, модели 5.5, system, история, ошибки как есть), CSP.
+- Этап 2 (17.10.2026): PWA — манифест, значки 180/192/512, apple-touch-icon, theme-color; плитки Location Fusion и Доктор по данным их репо.
+- Проверки: `tests/check-csp.cjs` 2/2, `tests/e2e.cjs` 51/51.
 
 ## Не проверено
-- Реальный api.anthropic.com (CORS, заголовок direct-browser-access) — без настоящего ключа.
-- Реальный iPhone/Safari: только headless Chromium с шириной 390.
+- Реальный api.anthropic.com (нужен настоящий ключ), Safari/iPhone, добавление на экран «Домой» на живом телефоне.
+- Устанавливаемость в Chromium: CDP Page.getInstallabilityErrors в headless пустой даже без манифеста — проверяем поля сами.
 
 ## Дальше
-- Ответы владельца: что делают Location Fusion и Доктор, хостинг, PWA.
-- Пуш ветки и PR после «да».
+- Хостинг: владелец делает repo публичным → Settings → Pages → Deploy from branch `main` / root.
+- URL-схема у Доктора, чтобы плитка открывала приложение, а не релизы (правка в repo doktor).
 
 ## Решения
-- APPS как JSON-блок, а не JS-массив: строгий CSP запрещает inline-скрипты.
-- Мок API через host-resolver-rules, а не тестовый флаг в коде: прод-код и CSP не меняются для тестов.
+- APPS как JSON-блок: строгий CSP запрещает inline-скрипты.
+- Мок API через host-resolver-rules: прод-код и CSP не меняются для тестов.
+- Без service worker: для установки не обязателен (MDN), офлайн не просили, меньше риска старого кэша.
