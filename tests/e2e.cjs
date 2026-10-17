@@ -108,13 +108,8 @@ const api = https.createServer({ key: fs.readFileSync(path.join(tmp, 'k.pem')), 
 
       const dok = await page.locator('.tile[data-id="doktor"]').evaluate((e) => e.tagName + '|' + e.getAttribute('href') + '|' + e.rel);
       check(`${width}px: «Доктор» ссылка на релизы SideStore`, dok === 'A|https://github.com/Maverlix777/doktor-sidestore/releases/latest|noopener noreferrer', dok);
-      for (const id of ['location-fusion']) {
-        const t = page.locator(`.tile[data-id="${id}"]`);
-        const tag = await t.evaluate((e) => e.tagName + '|' + e.getAttribute('href') + '|' + e.getAttribute('aria-disabled'));
-        await t.click();
-        await sleep(200);
-        check(`${width}px: «${id}» неактивна, клик не уводит`, tag === 'DIV|null|true' && page.url() === `${ORIGIN}/index.html`, `${tag} ${page.url()}`);
-      }
+      const lf = await page.locator('.tile[data-id="location-fusion"]').evaluate((e) => e.tagName + '|' + e.getAttribute('href') + '|' + e.rel);
+      check(`${width}px: «Location Fusion» ссылка на репо`, lf === 'A|https://github.com/Maverlix777/location-fusion-ios|noopener noreferrer', lf);
       await page.locator('.tile[data-id="chat"]').click();
       await page.waitForURL('**/apps/chat.html');
       check(`${width}px: плитка «Чат» открывает apps/chat.html`, page.url() === `${ORIGIN}/apps/chat.html`, page.url());

@@ -14,7 +14,7 @@
 - `tests/check-csp.cjs` — статическая проверка CSP и отсутствия внешних/inline-скриптов во всех страницах.
 - `tests/e2e.cjs` — Playwright: 390/1280 px, плитки, тёмная тема, чат с локальным HTTPS-моком API.
 - `manifest.webmanifest`, `icons/` (180/192/512, без альфы), `tools/make-icons.py` — значок на экран телефона (PWA, без service worker).
-- Плитки по данным репо: Location Fusion (`location-fusion-ios`, iOS, "soon": нет подписи Network Extension);
+- Плитки по данным репо: Location Fusion (`location-fusion-ios`, iOS) — ссылка на приватный repo, на телефоне не установлено: нет подписи Network Extension;
   Доктор (`doktor`, iOS через SideStore) — ссылка на релизы публичного `doktor-sidestore`. URL-схемы у Доктора нет.
 
 ## Запуск и проверка
