@@ -1,0 +1,28 @@
+<!doctype html>
+<html lang="ru">
+<head>
+<meta charset="utf-8">
+<meta http-equiv="Content-Security-Policy" content="default-src 'self'; connect-src https://api.anthropic.com; style-src 'self' 'unsafe-inline'">
+<!-- APPS: добавить приложение = добавить один объект. status: "ready" | "soon".
+     JSON, а не inline-JS: CSP default-src 'self' запрещает inline-скрипты, данные читает hub.js. -->
+<script type="application/json" id="apps">
+[
+  { "id": "chat", "title": "Чат", "desc": "Claude API из браузера, ключ хранится только здесь", "status": "ready", "href": "apps/chat.html" },
+  { "id": "location-fusion", "title": "Location Fusion", "desc": "", "status": "soon", "href": "" },
+  { "id": "doktor", "title": "Доктор", "desc": "", "status": "soon", "href": "" }
+]
+</script>
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<meta name="referrer" content="no-referrer">
+<meta name="color-scheme" content="light dark">
+<title>Хаб</title>
+<link rel="stylesheet" href="style.css">
+</head>
+<body>
+<header class="bar"><h1>Хаб</h1></header>
+<main>
+  <ul id="grid" class="grid"></ul>
+</main>
+<script src="hub.js"></script>
+</body>
+</html>
