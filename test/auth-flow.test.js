@@ -11,6 +11,7 @@ const gatewaySecret = 'test-gateway-secret-with-at-least-32-bytes';
 const rpID = 'kolobovdjp.org';
 const sql = await readFile(new URL('../migrations/0001_auth.sql', import.meta.url), 'utf8');
 const indexHtml = await readFile(new URL('../public/index.html', import.meta.url), 'utf8');
+const loginHtml = await readFile(new URL('../public/login.html', import.meta.url), 'utf8');
 const sqlite = new DatabaseSync(':memory:');
 sqlite.exec('PRAGMA foreign_keys = ON');
 sqlite.exec(sql);
@@ -281,6 +282,7 @@ test('public auth UI, aliases, protected assets, and logout have expected routin
   assert.equal(lastAssetRequest.headers.has('X-Hub-Gateway-Token'), false);
   assert.equal(lastAssetRequest.headers.has('X-Hub-Client-IP'), false);
   assert.match(indexHtml, /connect-src 'self' https:\/\/api\.anthropic\.com/);
+  assert.match(loginHtml, /<a href="\/privacy\/">Конфиденциальность<\/a>/);
   assert.equal((await worker.fetch(req('/хаб/'), env)).status, 308);
   const headLogin = await worker.fetch(req('/hub/login', { method: 'HEAD' }), env);
   assert.equal(headLogin.status, 308);
