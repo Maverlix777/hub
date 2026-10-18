@@ -1,0 +1,41 @@
+<!doctype html>
+<html lang="ru">
+<head>
+<meta charset="utf-8">
+<meta http-equiv="Content-Security-Policy" content="default-src 'self'; connect-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; base-uri 'self'; form-action 'self'; frame-ancestors 'none'">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<meta name="referrer" content="no-referrer">
+<meta name="color-scheme" content="light dark">
+<title>Вход в Hub</title>
+<link rel="manifest" href="/hub/manifest.webmanifest">
+<link rel="icon" type="image/png" href="/hub/icons/icon-192.png">
+<link rel="stylesheet" href="/hub/style.css">
+<link rel="stylesheet" href="/hub/login.css">
+</head>
+<body>
+<header class="bar"><a class="btn" href="/">KOLOBOVDJP LLC</a><h1>Hub</h1></header>
+<main class="auth-card">
+  <p class="eyebrow">Бесплатная учётная запись</p>
+  <h2>Вход по ключу доступа</h2>
+  <p>Введите имя и используйте ключ доступа, созданный на устройстве. Это passkey — биометрия, PIN или защитный ключ; пароль и email не нужны.</p>
+  <details class="account-details">
+    <summary>Что хранится в учётной записи</summary>
+    <p>Hub хранит имя, открытый ключ passkey и хеш токена сессии в облачной базе. Закрытый ключ остаётся в устройстве или его менеджере ключей.</p>
+    <p>Пока нет восстановления через email или поддержку. Если потерять все ключи доступа, войти в эту учётную запись не получится.</p>
+  </details>
+  <form id="auth-form">
+    <label for="username">Имя учётной записи</label>
+    <input id="username" name="username" required minlength="3" maxlength="32" pattern="[A-Za-z0-9][A-Za-z0-9_.-]{2,31}" autocomplete="username webauthn" autocapitalize="none" spellcheck="false">
+    <small class="field-hint">3–32 символа: латиница, цифры, точка, дефис или подчёркивание.</small>
+    <div class="auth-actions">
+      <button id="login" class="primary" type="button">Войти по ключу</button>
+      <button id="register" type="button">Создать учётную запись</button>
+    </div>
+  </form>
+  <p id="status" role="status" aria-live="polite"></p>
+  <a href="/privacy/">Конфиденциальность</a>
+  <a href="/">На сайт KOLOBOVDJP LLC</a>
+</main>
+<script src="/hub/login.js"></script>
+</body>
+</html>

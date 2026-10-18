@@ -1,8 +1,10 @@
 #!/usr/bin/env python3
-"""Copy only the public Hub website files into a clean GitHub Pages artifact."""
+"""Build either the public Hub site or a small legacy-route redirect artifact."""
 from pathlib import Path
 import argparse
+from html import escape
 import shutil
+from urllib.parse import urlsplit
 
 ROOT = Path(__file__).resolve().parents[1]
 FILES = (
@@ -23,12 +25,21 @@ DIRECTORIES = ("icons",)
 def main() -> None:
     parser = argparse.ArgumentParser()
     parser.add_argument("--output", required=True, type=Path)
-    output = parser.parse_args().output.resolve()
+    parser.add_argument(
+        "--redirect-to",
+        help="emit only redirects to this canonical Hub URL (used for Pages migration)",
+    )
+    args = parser.parse_args()
+    output = args.output.resolve()
     if output == ROOT or ROOT in output.parents:
         raise SystemExit("output must be outside the source checkout")
     if output.exists() and any(output.iterdir()):
         raise SystemExit(f"output directory must be empty: {output}")
     output.mkdir(parents=True, exist_ok=True)
+    if args.redirect_to:
+        build_redirects(output, args.redirect_to)
+        print(f"Built legacy route redirects -> {output}")
+        return
     for rel in FILES:
         src, dst = ROOT / rel, output / rel
         if not src.is_file():
@@ -41,6 +52,41 @@ def main() -> None:
             raise SystemExit(f"required site directory is missing: {rel}")
         shutil.copytree(src, dst)
     print(f"Built public site: {len(FILES)} files + {len(DIRECTORIES)} asset directories -> {output}")
+
+
+def build_redirects(output: Path, target: str) -> None:
+    parsed = urlsplit(target)
+    if (
+        parsed.scheme != "https"
+        or not parsed.netloc
+        or parsed.username is not None
+        or parsed.password is not None
+        or parsed.query
+        or parsed.fragment
+        or not parsed.path.endswith("/")
+    ):
+        raise SystemExit("redirect target must be an HTTPS base URL ending in /")
+
+    routes = {
+        "index.html": target,
+        "apps/chat.html": f"{target}apps/chat.html",
+        "apps/downloads.html": f"{target}apps/downloads.html",
+    }
+    for rel, destination in routes.items():
+        page = output / rel
+        page.parent.mkdir(parents=True, exist_ok=True)
+        escaped = escape(destination, quote=True)
+        page.write_text(
+            "<!doctype html>\n"
+            '<html lang="ru"><head><meta charset="utf-8">'
+            '<meta name="viewport" content="width=device-width, initial-scale=1">'
+            f'<meta http-equiv="refresh" content="0;url={escaped}">'
+            f'<link rel="canonical" href="{escaped}">'
+            '<title>Hub переехал</title></head><body>'
+            f'<p>Hub переехал. <a href="{escaped}">Открыть новую страницу</a>.</p>'
+            '</body></html>\n',
+            encoding="utf-8",
+        )
 
 
 if __name__ == "__main__":
