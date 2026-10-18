@@ -28,6 +28,8 @@ jobs:
         run: node tests/check-csp.cjs
       - name: Validate release catalog
         run: node tests/check-downloads.cjs
+      - name: Check opt-in legacy Pages redirects
+        run: python3 tests/check-pages-redirect.py
       - name: Install isolated browser-test dependency
         run: |
           npm install --prefix "$RUNNER_TEMP/hub-ci" --no-save playwright
@@ -62,7 +64,7 @@ jobs:
         with:
           python-version: '3.x'
       - name: Build allowlisted public site
-        run: python3 tools/build-site.py --output "$RUNNER_TEMP/hub-public"
+        run: python3 tools/build-site.py --output "$RUNNER_TEMP/hub-public" --redirect-to "https://kolobovdjp.org/hub/"
       - uses: actions/configure-pages@v5
       - uses: actions/upload-pages-artifact@v3
         with:
