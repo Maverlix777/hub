@@ -13,10 +13,12 @@
 - `apps/chat.html`, `chat.js`, `chat.css` — чат с Claude API напрямую из браузера.
 - `apps/downloads.html`, `downloads.js`, `downloads.css` — раздел «Загрузки». Реестр сборок — JSON-блок `<script type="application/json" id="manifest">` в html (fetch под CSP заблокирован). Поля: project, platform, kind, version, file, size, sha256, date, url (https), note.
 - `tests/check-csp.cjs` — статическая проверка CSP, внешних/inline-скриптов во всех страницах (apps/ рекурсивно) и опасных приёмников HTML в .js (innerHTML, eval и т.п.).
-- `tests/check-downloads.cjs` — проверка реестра сборок (обязательные поля, sha256, дата, https).
+- `tests/check-downloads.cjs` — проверка реестра сборок, публичного build 9 metadata и скрытия ссылок для недоступных сборок.
+- `tools/build-site.py` — собирает allowlisted Pages artifact только из публичных HTML/CSS/JS/иконок. Не копирует `CLAUDE.md`, `HANDOFF.md`, `PROGRESS.md`, `tests/`, `tools/`.
+- `.github/workflows/ci.yml` — запускает проверки и браузерные тесты на собранном artifact; после проверки main собирает и публикует Pages artifact из того же allowlist.
 - `tests/e2e.cjs` — Playwright: 390/1280 px, плитки, тёмная тема, чат с локальным HTTPS-моком API.
 - `manifest.webmanifest`, `icons/` (180/192/512, без альфы), `tools/make-icons.py` — значок на экран телефона (PWA, без service worker).
-- Плитки по данным репо: Location Fusion (`location-fusion-ios`, iOS) — ссылка на приватный repo, на телефоне не установлено: нет подписи Network Extension;
+- Плитка Location Fusion ведёт на публичную страницу текущей unsigned SideStore preview-сборки (внешний LocalDevVPN), не на приватный исходный repo;
   Доктор (`doktor`, iOS через SideStore) — ссылка на релизы публичного `doktor-sidestore`. URL-схемы у Доктора нет.
 
 ## Запуск и проверка
@@ -24,9 +26,11 @@
 python3 -m http.server 8765          # открыть http://127.0.0.1:8765/
 node tests/check-csp.cjs             # CSP всех страниц
 node tests/check-downloads.cjs       # реестр «Загрузок»
-NODE_PATH=/opt/node-tools/node_modules node tests/e2e.cjs   # нужен openssl, python3, порт 443 (root)
+python3 tests/check-site-artifact.py # содержимое Pages artifact
+NODE_PATH=/opt/node-tools/node_modules node tests/check-subpath.cjs # базовый путь /hub/
+NODE_PATH=/opt/node-tools/node_modules node tests/e2e.cjs   # нужен openssl, python3, порт 443
 ```
-e2e подменяет api.anthropic.com через `--host-resolver-rules` на локальный мок: код не трогается, реальный ключ не нужен.
+e2e подменяет api.anthropic.com через `--host-resolver-rules` на локальный мок: код не трогается, реальный ключ не нужен. CI grants the test Node process permission to bind port 443; it does not call Anthropic.
 
 ## Чат: формат API (сверено с platform.claude.com 17.10.2026)
 POST https://api.anthropic.com/v1/messages; заголовки x-api-key, anthropic-version: 2023-06-01,
@@ -46,8 +50,8 @@ content-type: application/json, anthropic-dangerous-direct-browser-access: true 
 - Ключ: только localStorage браузера. Не в коде, URL, логах, консоли, тексте ошибок, git.
 - Ответ модели — только textContent (или безопасный markdown без innerHTML с непроверенным текстом).
 - Пуш, публикация, хостинг — только после «да» владельца.
-- Хостинг: GitHub Pages из `main` / root, repo публичный (с 18.10.2026), сайт `https://maverlix777.github.io/hub/`.
-  Pages раздаёт всё дерево, включая CLAUDE.md, PROGRESS.md, HANDOFF.md и tests/: приватные сведения в repo не класть.
+- Хостинг: GitHub Pages из проверенного artifact workflow, сайт `https://maverlix777.github.io/hub/`. Перед переключением с legacy Pages на Actions владелец должен выбрать GitHub Actions в Repository Settings → Pages → Source.
+  Artifact allowlist содержит только приложение; координационные документы и тесты в Pages не включать. Сам GitHub repository публичный, поэтому не хранить секреты или private credentials в любом коммите.
 - `maverlix777.github.io` — один origin на все project-сайты аккаунта: localStorage (ключ) виден их скриптам.
   Не включать Pages в других repo аккаунта без своего домена (у mukha-v-storonu CNAME есть, он отдельный).
 - Ключ вводить внутри значка «Домой» и проверить на телефоне: хранилище значка и вкладки Safari, вероятно, раздельны (не проверено).

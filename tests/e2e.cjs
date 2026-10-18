@@ -10,6 +10,7 @@ const path = require('path');
 const { execFileSync, spawn } = require('child_process');
 
 const ROOT = path.resolve(__dirname, '..');
+const WEB_ROOT = process.env.HUB_SITE_ROOT ? path.resolve(process.env.HUB_SITE_ROOT) : ROOT;
 const PORT = 8765;
 const ORIGIN = `http://127.0.0.1:${PORT}`;
 const KEY_OK = 'sk-ant-TEST-stream-0000';
@@ -79,7 +80,7 @@ const api = https.createServer({ key: fs.readFileSync(path.join(tmp, 'k.pem')), 
 
 (async () => {
   await new Promise((r) => api.listen(443, '127.0.0.1', r));
-  const web = spawn('python3', ['-m', 'http.server', String(PORT), '--bind', '127.0.0.1'], { cwd: ROOT, stdio: 'ignore' });
+  const web = spawn('python3', ['-m', 'http.server', String(PORT), '--bind', '127.0.0.1'], { cwd: WEB_ROOT, stdio: 'ignore' });
   await sleep(700);
   fs.mkdirSync(SHOTS, { recursive: true });
 
@@ -117,7 +118,7 @@ const api = https.createServer({ key: fs.readFileSync(path.join(tmp, 'k.pem')), 
       const dok = await page.locator('.tile[data-id="doktor"]').evaluate((e) => e.tagName + '|' + e.getAttribute('href') + '|' + e.rel);
       check(`${width}px: «Доктор» ссылка на релизы SideStore`, dok === 'A|https://github.com/Maverlix777/doktor-sidestore/releases/latest|noopener noreferrer', dok);
       const lf = await page.locator('.tile[data-id="location-fusion"]').evaluate((e) => e.tagName + '|' + e.getAttribute('href') + '|' + e.rel);
-      check(`${width}px: «Location Fusion» ссылка на репо`, lf === 'A|https://github.com/Maverlix777/location-fusion-ios|noopener noreferrer', lf);
+      check(`${width}px: «Location Fusion» ведёт на страницу публичной сборки`, lf === 'A|https://kolobovdjp.org/locationfusion/install/|noopener noreferrer', lf);
       await page.locator('.tile[data-id="chat"]').click();
       await page.waitForURL('**/apps/chat.html');
       check(`${width}px: плитка «Чат» открывает apps/chat.html`, page.url() === `${ORIGIN}/apps/chat.html`, page.url());
@@ -131,12 +132,17 @@ const api = https.createServer({ key: fs.readFileSync(path.join(tmp, 'k.pem')), 
       await page.locator('.tile[data-id="downloads"]').click();
       await page.waitForURL('**/apps/downloads.html');
       const cards = await page.locator('.dl').count();
-      check(`${width}px: «Загрузки» показывают запись из реестра`, cards === 1, cards);
+      check(`${width}px: «Загрузки» показывают доступные и ожидающие записи из реестра`, cards === 2, cards);
+      const unavailableLinks = await page.locator('.dl').filter({ hasText: 'Nebula Pop' }).locator('a.btn').count();
+      check(`${width}px: недоступная Nebula Pop не показывает «Скачать»`, unavailableLinks === 0, unavailableLinks);
+      const lfDownload = await page.locator('.dl').filter({ hasText: 'Location Fusion Test' }).locator('a.btn').evaluate((e) => e.href + '|' + e.rel);
+      check(`${width}px: build 9 ведёт на публичный IPA с noopener`,
+        lfDownload === 'https://kolobovdjp.org/locationfusion/install/LocationFusion-Test-build9-UI.ipa|noopener noreferrer', lfDownload);
       const dl = await page.locator('.dl a.btn').evaluate((e) => e.getAttribute('href') + '|' + e.rel);
-      check(`${width}px: «Загрузки» ссылка https и noopener`, /^https:\/\/github\.com\/.+\|noopener noreferrer$/.test(dl), dl);
-      await page.fill('#q', 'ios');
+      check(`${width}px: «Загрузки» ссылка https и noopener`, /^https:\/\/[^|]+\|noopener noreferrer$/.test(dl), dl);
+      await page.fill('#q', 'nebula');
       const none = await page.locator('.dl').count();
-      check(`${width}px: «Загрузки» поиск отсекает лишнее`, none === 0, none);
+      check(`${width}px: «Загрузки» поиск отсекает лишнее`, none === 1, none);
       const ov3 = await page.evaluate(() => document.documentElement.scrollWidth - window.innerWidth);
       check(`${width}px: «Загрузки» без горизонтального скролла`, ov3 <= 0, ov3);
       await page.locator('#hub').click();

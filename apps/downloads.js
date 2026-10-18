@@ -30,7 +30,7 @@
       li.append(tags);
       if (i.note) li.append(el('div', 'note', i.note));
       li.append(el('div', 'sum', 'sha256: ' + i.sha256));
-      if (/^https:\/\//i.test(i.url)) {
+      if (i.available !== false && /^https:\/\//i.test(i.url || '')) {
         const a = el('a', 'btn', 'Скачать');
         a.href = i.url;
         a.rel = 'noopener noreferrer';
