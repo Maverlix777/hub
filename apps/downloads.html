@@ -1,0 +1,49 @@
+<!doctype html>
+<html lang="ru">
+<head>
+<meta charset="utf-8">
+<meta http-equiv="Content-Security-Policy" content="default-src 'self'; connect-src https://api.anthropic.com; style-src 'self' 'unsafe-inline'">
+<!-- Реестр сборок: добавить файл = добавить один объект. Поля: project, platform, kind, version, file, size, sha256, date, url (https), note.
+     JSON, а не fetch: CSP connect-src не включает 'self'. Бинарники в git не класть, url ведёт на Release или артефакт CI. -->
+<script type="application/json" id="manifest">
+  [
+    {
+      "project": "Nebula Pop",
+      "platform": "android",
+      "kind": "apk-debug",
+      "version": "58e22a9",
+      "file": "nebula-pop-debug-apk",
+      "size": 10710794,
+      "sha256": "ece684e9f873529fa069ff7767f2558cbc5d053da9aab8e0421335fd0ae13d1c",
+      "date": "2026-10-17",
+      "url": "https://github.com/Maverlix777/nebula-pop/actions/runs/39072679393",
+      "note": "Тестовые ID AdMob. Артефакт CI (zip с APK), хранится ограниченное время; нужен вход в GitHub."
+    }
+  ]
+</script>
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<meta name="referrer" content="no-referrer">
+<meta name="color-scheme" content="light dark">
+<link rel="manifest" href="../manifest.webmanifest">
+<link rel="icon" type="image/png" href="../icons/icon-192.png">
+<link rel="apple-touch-icon" href="../icons/icon-180.png">
+<meta name="apple-mobile-web-app-title" content="Хаб">
+<meta name="theme-color" content="#f6f6f4" media="(prefers-color-scheme: light)">
+<meta name="theme-color" content="#141413" media="(prefers-color-scheme: dark)">
+<title>Загрузки — Хаб</title>
+<link rel="stylesheet" href="../style.css">
+<link rel="stylesheet" href="downloads.css">
+</head>
+<body>
+<header class="bar">
+  <a class="btn" id="hub" href="../index.html">← Хаб</a>
+  <h1>Загрузки</h1>
+</header>
+<main class="downloads">
+  <p class="hint">Все сборки: APK, AAB, IPA, видео и прочее. Бинарников в git нет, здесь ссылки и контрольные суммы.</p>
+  <input id="q" type="search" placeholder="Поиск: проект, платформа, версия" aria-label="Поиск">
+  <ul id="list" class="dl-list"></ul>
+</main>
+<script src="downloads.js"></script>
+</body>
+</html>
