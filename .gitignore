@@ -1,1 +1,6 @@
 tests/shots/
+node_modules/
+.wrangler/
+.dev.vars
+.dev.vars.*
+wrangler.production.local.jsonc

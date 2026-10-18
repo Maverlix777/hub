@@ -15,7 +15,11 @@ jobs:
       - uses: actions/checkout@v4
       - uses: actions/setup-node@v4
         with:
-          node-version: 20
+          node-version: 22
+      - name: Install Cloudflare Worker dependencies
+        run: npm ci
+      - name: Test WebAuthn and session worker
+        run: npm test
       - name: Build allowlisted public site
         run: python3 tools/build-site.py --output "$RUNNER_TEMP/hub-public"
       - name: Check public artifact contents and local paths

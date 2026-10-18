@@ -1,0 +1,12 @@
+{
+  "name": "hub-cloudflare-auth",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "test": "node --experimental-sqlite --test test/*.test.js"
+  },
+  "dependencies": {
+    "@simplewebauthn/server": "14.0.3"
+  }
+}
