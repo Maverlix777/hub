@@ -15,6 +15,7 @@
 - `tests/check-csp.cjs` — статическая проверка CSP, внешних/inline-скриптов во всех страницах (apps/ рекурсивно) и опасных приёмников HTML в .js (innerHTML, eval и т.п.).
 - `tests/check-downloads.cjs` — проверка реестра сборок, публичного build 9 metadata и скрытия ссылок для недоступных сборок.
 - `tools/build-site.py` — собирает allowlisted Pages artifact только из публичных HTML/CSS/JS/иконок. Не копирует `CLAUDE.md`, `HANDOFF.md`, `PROGRESS.md`, `tests/`, `tools/`.
+- `static/games/krenkballs/privacy.html` — политика конфиденциальности игры Krenkballs. Попадает в Pages artifact рядом с редиректами (`STATIC_PAGES` в `tools/build-site.py`), адрес `https://maverlix777.github.io/hub/games/krenkballs/privacy.html`. Источник: `docs/site/krenkballs/privacy.html` в `nebula-pop`; менять в обоих местах.
 - `.github/workflows/ci.yml` — запускает проверки и браузерные тесты на собранном artifact; после проверки main собирает и публикует Pages artifact из того же allowlist.
 - `tests/e2e.cjs` — Playwright: 390/1280 px, плитки, тёмная тема, чат с локальным HTTPS-моком API.
 - `manifest.webmanifest`, `icons/` (180/192/512, без альфы), `tools/make-icons.py` — значок на экран телефона (PWA, без service worker).

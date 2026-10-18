@@ -20,6 +20,8 @@ FILES = (
     "apps/downloads.css",
 )
 DIRECTORIES = ("icons",)
+# Static pages of other projects served from the Pages artifact next to the redirects.
+STATIC_PAGES = ("games/krenkballs/privacy.html",)
 
 
 def main() -> None:
@@ -87,6 +89,12 @@ def build_redirects(output: Path, target: str) -> None:
             '</body></html>\n',
             encoding="utf-8",
         )
+    for rel in STATIC_PAGES:
+        src, dst = ROOT / "static" / rel, output / rel
+        if not src.is_file():
+            raise SystemExit(f"required static page is missing: {rel}")
+        dst.parent.mkdir(parents=True, exist_ok=True)
+        shutil.copy2(src, dst)
 
 
 if __name__ == "__main__":
