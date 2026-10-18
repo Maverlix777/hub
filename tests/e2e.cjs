@@ -15,7 +15,10 @@ const ORIGIN = `http://127.0.0.1:${PORT}`;
 const KEY_OK = 'sk-ant-TEST-stream-0000';
 const KEY_401 = 'sk-ant-TEST-bad-1111';
 const KEY_MIDERR = 'sk-ant-TEST-miderr-2222';
-const ALL_KEYS = [KEY_OK, KEY_401, KEY_MIDERR];
+const KEY_REFUSAL = 'sk-ant-TEST-refusal-3333';
+const KEY_MAXTOK = 'sk-ant-TEST-maxtok-4444';
+const KEY_NOSTOP = 'sk-ant-TEST-nostop-5555';
+const ALL_KEYS = [KEY_OK, KEY_401, KEY_MIDERR, KEY_REFUSAL, KEY_MAXTOK, KEY_NOSTOP];
 const SHOTS = path.join(ROOT, 'tests', 'shots');
 
 let passed = 0, failed = 0;
@@ -53,7 +56,8 @@ const api = https.createServer({ key: fs.readFileSync(path.join(tmp, 'k.pem')), 
     res.write(sse('message_start', { type: 'message_start', message: { id: 'msg_mock', type: 'message', role: 'assistant', content: [], model: 'mock' } }));
     res.write(sse('content_block_start', { type: 'content_block_start', index: 0, content_block: { type: 'text', text: '' } }));
     res.write(sse('ping', { type: 'ping' }));
-    const n = key === KEY_MIDERR ? 3 : 60;
+    // REFUSAL: ни одного куска текста; MAXTOK/NOSTOP: два куска; NOSTOP: поток обрывается без message_delta
+    const n = key === KEY_MIDERR ? 3 : key === KEY_MAXTOK || key === KEY_NOSTOP ? 2 : key === KEY_REFUSAL ? 0 : 60;
     for (let i = 0; i < n; i++) {
       if (res.destroyed) return;
       // <b> проверяет, что ответ не попадает в innerHTML
@@ -65,7 +69,9 @@ const api = https.createServer({ key: fs.readFileSync(path.join(tmp, 'k.pem')), 
       return res.end();
     }
     res.write(sse('content_block_stop', { type: 'content_block_stop', index: 0 }));
-    res.write(sse('message_delta', { type: 'message_delta', delta: { stop_reason: 'end_turn' }, usage: { output_tokens: 60 } }));
+    if (key === KEY_NOSTOP) return res.end();
+    const stopReason = key === KEY_MAXTOK ? 'max_tokens' : key === KEY_REFUSAL ? 'refusal' : 'end_turn';
+    res.write(sse('message_delta', { type: 'message_delta', delta: { stop_reason: stopReason }, usage: { output_tokens: 60 } }));
     res.write(sse('message_stop', { type: 'message_stop' }));
     res.end();
   });
@@ -84,7 +90,9 @@ const api = https.createServer({ key: fs.readFileSync(path.join(tmp, 'k.pem')), 
   const consoleLines = [];
   const requests = []; // { url, headers, postData }
   const cspViolations = [];
+  const pageErrors = [];
   function watch(page) {
+    page.on('pageerror', (e) => pageErrors.push(String(e && e.message)));
     page.on('console', (m) => {
       consoleLines.push(m.text());
       if (/Content Security Policy/i.test(m.text())) cspViolations.push(m.text());
@@ -250,7 +258,75 @@ const api = https.createServer({ key: fs.readFileSync(path.join(tmp, 'k.pem')), 
     await page.click('#clear');
     check('«Очистить» стирает историю', (await page.locator('.msg').count()) === 0 &&
       (await page.evaluate(() => localStorage.getItem('hub.chat.history'))) === null);
+
+    // --- исходы без нормального ответа ---
+    const setKey = async (k) => { await page.click('#forgetKey'); await page.fill('#key', k); await page.click('#saveKey'); };
+    const done = () => page.waitForSelector('#send:not([hidden])', { timeout: 10000 });
+    const lastBody = () => page.locator('.msg.assistant .body').last();
+    const histNow = () => page.evaluate(() => JSON.parse(localStorage.getItem('hub.chat.history') || '[]'));
+
+    // пустой ответ с причиной
+    await setKey(KEY_REFUSAL);
+    const userBefore = await page.locator('.msg.user').count();
+    await page.fill('#input', 'вопрос без ответа'); await page.click('#send'); await done();
+    const emptyMsg = await page.locator('.msg.error .body').last().textContent();
+    check('пустой ответ: причина stop_reason показана', emptyMsg.includes('refusal'), emptyMsg);
+    check('пустой ответ: вопрос вернулся в поле, пузырь вопроса убран',
+      (await page.inputValue('#input')) === 'вопрос без ответа' && (await page.locator('.msg.user').count()) === userBefore);
+    const h1 = await histNow();
+    check('пустой ответ: вопрос не остался в истории', !h1.some((m) => m.content === 'вопрос без ответа'), JSON.stringify(h1));
+
+    // 401 тоже не оставляет вопрос в истории без ответа
+    await setKey(KEY_401);
+    await page.fill('#input', 'ещё раз 401'); await page.click('#send'); await done();
+    const h2 = await histNow();
+    check('ошибка HTTP: история не кончается на user', h2.length === 0 || h2[h2.length - 1].role !== 'user', JSON.stringify(h2));
+
+    // обрезанный ответ помечен
+    await setKey(KEY_MAXTOK);
+    await page.fill('#input', 'длинный'); await page.click('#send'); await done();
+    const mtNote = await page.locator('.msg.assistant .note').last().textContent();
+    check('max_tokens: ответ сохранён и помечен stop_reason', mtNote === 'stop_reason: max_tokens' && (await lastBody().textContent()).includes('часть1'), mtNote);
+
+    await setKey(KEY_NOSTOP);
+    await page.fill('#input', 'обрыв'); await page.click('#send'); await done();
+    const nsNote = await page.locator('.msg.assistant .note').last().textContent();
+    check('поток без stop_reason: ответ помечен как возможно оборванный', nsNote.includes('без stop_reason'), nsNote);
+
+    // «Очистить» посреди ответа: ничего из старого хода не попадает в новую историю
+    await setKey(KEY_OK);
+    await page.click('#clear');
+    await page.fill('#input', 'до очистки'); await page.click('#send');
+    await page.waitForFunction(() => { const b = [...document.querySelectorAll('.msg.assistant .body')].pop(); return b && b.textContent.length > 0; });
+    await page.click('#clear');
+    await sleep(800);
+    check('«Очистить» посреди ответа: лог и история пусты, ввод разблокирован',
+      (await page.locator('.msg').count()) === 0 && (await page.evaluate(() => localStorage.getItem('hub.chat.history'))) === null &&
+      await page.locator('#send').isVisible() && !(await page.locator('#input').isDisabled()));
+    const aborted = apiLog.filter((e) => e.method === 'POST').pop().aborted;
+    check('«Очистить» посреди ответа: соединение оборвано', aborted === true, aborted);
+    await page.fill('#input', 'после очистки'); await page.click('#send');
+    await page.waitForFunction(() => { const b = [...document.querySelectorAll('.msg.assistant .body')].pop(); return b && b.textContent.length > 0; });
+    await page.click('#stop'); await done();
+    const afterClear = JSON.parse(apiLog.filter((e) => e.method === 'POST').pop().body).messages;
+    check('после «Очистить» запрос начинается с чистой истории', afterClear.length === 1 && afterClear[0].role === 'user' && afterClear[0].content === 'после очистки', JSON.stringify(afterClear));
     await ctx.close();
+
+    // --- битая история в localStorage не ломает страницу ---
+    {
+      const ctx2 = await browser.newContext({ viewport: { width: 390, height: 844 }, ignoreHTTPSErrors: true });
+      const p2 = await ctx2.newPage(); watch(p2);
+      await p2.goto(`${ORIGIN}/apps/chat.html`);
+      await p2.evaluate(() => localStorage.setItem('hub.chat.history', '[null,{"role":"user","content":5},{"role":"user","content":"a"},{"role":"assistant","content":"b"},{"role":"user","content":"c"}]'));
+      await p2.reload();
+      check('битая история: валидные реплики на месте, хвостовой вопрос — в поле ввода',
+        (await p2.locator('.msg').count()) === 2 && (await p2.inputValue('#input')) === 'c');
+      await p2.evaluate(() => localStorage.setItem('hub.chat.history', '[null]'));
+      await p2.reload();
+      check('битая история [null]: страница живая', (await p2.locator('.msg').count()) === 0 && await p2.locator('#send').isVisible());
+      await ctx2.close();
+    }
+    check('нет необработанных ошибок страниц', pageErrors.length === 0, pageErrors.join(' | '));
 
     // --- утечки ключа ---
     const inConsole = consoleLines.filter((l) => ALL_KEYS.some((k) => l.includes(k)));

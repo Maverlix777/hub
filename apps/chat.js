@@ -19,6 +19,10 @@
   let history = [];
   try { history = JSON.parse(store.get(K.history) || '[]'); } catch { history = []; }
   if (!Array.isArray(history)) history = [];
+  // чужая/битая запись в localStorage не должна ломать чат: оставляем только валидные реплики
+  history = history.filter((m) => m && (m.role === 'user' || m.role === 'assistant') && typeof m.content === 'string');
+  let pendingText = '';
+  if (history.length && history[history.length - 1].role === 'user') pendingText = history.pop().content; // страницу закрыли посреди ответа
   let controller = null;
 
   // --- ключ: только localStorage, поле после сохранения очищается ---
@@ -71,6 +75,7 @@
   }
   function saveHistory() { store.set(K.history, JSON.stringify(history)); }
   for (const m of history) addMsg(m.role, m.content);
+  if (pendingText && !els.input.value) els.input.value = pendingText;
 
   els.clear.addEventListener('click', () => {
     if (controller) controller.abort();
@@ -91,22 +96,26 @@
     const reader = body.getReader();
     const decoder = new TextDecoder();
     let buf = '';
-    for (;;) {
-      const { value, done } = await reader.read();
-      if (done) break;
-      buf += decoder.decode(value, { stream: true });
-      let m;
-      while ((m = buf.match(/\r?\n\r?\n/))) {
-        const raw = buf.slice(0, m.index);
-        buf = buf.slice(m.index + m[0].length);
-        let event = 'message';
-        const data = [];
-        for (const line of raw.split(/\r?\n/)) {
-          if (line.startsWith('event:')) event = line.slice(6).trim();
-          else if (line.startsWith('data:')) data.push(line.slice(5).replace(/^ /, ''));
+    try {
+      for (;;) {
+        const { value, done } = await reader.read();
+        if (done) break;
+        buf += decoder.decode(value, { stream: true });
+        let m;
+        while ((m = buf.match(/\r?\n\r?\n/))) {
+          const raw = buf.slice(0, m.index);
+          buf = buf.slice(m.index + m[0].length);
+          let event = 'message';
+          const data = [];
+          for (const line of raw.split(/\r?\n/)) {
+            if (line.startsWith('event:')) event = line.slice(6).trim();
+            else if (line.startsWith('data:')) data.push(line.slice(5).replace(/^ /, ''));
+          }
+          if (data.length) yield { event, data: data.join('\n') };
         }
-        if (data.length) yield { event, data: data.join('\n') };
       }
+    } finally {
+      try { await reader.cancel(); } catch { /* поток уже закрыт */ }
     }
   }
 
@@ -116,6 +125,7 @@
     const key = store.get(K.key);
     if (!key) { renderKeyState(); els.key.focus(); return; }
 
+    const mine = history; // Clear во время ответа подменяет history: такой ответ уже никому не нужен
     history.push({ role: 'user', content: text });
     saveHistory();
     const userLi = addMsg('user', text);
@@ -125,6 +135,8 @@
     const body = li.querySelector('.body');
     let answer = '';
     let failed = false;
+    let aborted = false;
+    let stop = '';
     controller = new AbortController();
     setBusy(true);
 
@@ -163,9 +175,13 @@
             body.textContent = redact(answer ? `${answer}\n\nerror\n${ev.data}` : `error\n${ev.data}`, key);
             break;
           }
-          if (ev.event !== 'content_block_delta') continue;
+          if (ev.event !== 'content_block_delta' && ev.event !== 'message_delta') continue;
           let d;
           try { d = JSON.parse(ev.data); } catch { continue; }
+          if (ev.event === 'message_delta') {
+            if (d.delta && typeof d.delta.stop_reason === 'string') stop = d.delta.stop_reason;
+            continue;
+          }
           if (d.delta && d.delta.type === 'text_delta') {
             answer += d.delta.text;
             body.textContent = answer;
@@ -174,6 +190,7 @@
       }
     } catch (e) {
       if (e && e.name === 'AbortError') {
+        aborted = true;
         addNote(li, 'остановлено');
       } else {
         failed = true;
@@ -185,12 +202,22 @@
       setBusy(false);
     }
 
+    if (history !== mine) return; // нажали «Очистить»: ничего не пишем в новую историю
     if (answer) {
       history.push({ role: 'assistant', content: answer });
+      if (!failed && !aborted) {
+        if (stop && stop !== 'end_turn' && stop !== 'stop_sequence') addNote(li, `stop_reason: ${stop}`);
+        else if (!stop) addNote(li, 'поток закончился без stop_reason, ответ мог оборваться');
+      }
     } else {
-      // ответа нет: вопрос возвращаем в поле, чтобы история не ломала чередование ролей
+      // ответа нет: вопрос возвращаем в поле, чтобы история не ломала чередование ролей;
+      // пузырь вопроса убираем, чтобы лог совпадал с историей
       history.pop();
-      if (!failed) { li.remove(); userLi.remove(); }
+      userLi.remove();
+      if (!failed && !aborted) {
+        li.className = 'msg error';
+        body.textContent = `Пустой ответ, stop_reason: ${stop || 'нет'}. Вопрос возвращён в поле ввода.`;
+      } else if (aborted) li.remove();
       els.input.value = text;
     }
     saveHistory();

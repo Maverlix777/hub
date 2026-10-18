@@ -6,7 +6,15 @@ const path = require('path');
 
 const ROOT = path.resolve(__dirname, '..');
 const CSP = "default-src 'self'; connect-src https://api.anthropic.com; style-src 'self' 'unsafe-inline'";
-const pages = ['index.html', ...fs.readdirSync(path.join(ROOT, 'apps')).filter((f) => f.endsWith('.html')).map((f) => 'apps/' + f)];
+// apps/ обходим рекурсивно: приложение в подпапке не должно проскочить мимо проверки
+function walk(dir) {
+  return fs.readdirSync(path.join(ROOT, dir), { withFileTypes: true }).flatMap((e) => {
+    const rel = dir + '/' + e.name;
+    return e.isDirectory() ? walk(rel) : [rel];
+  });
+}
+const pages = ['index.html', ...walk('apps').filter((f) => f.endsWith('.html'))];
+const scripts = [...fs.readdirSync(ROOT).filter((f) => f.endsWith('.js')), ...walk('apps').filter((f) => f.endsWith('.js'))];
 
 let fails = 0;
 const fail = (p, msg) => { fails++; console.log(`FAIL ${p}: ${msg}`); };
@@ -31,5 +39,14 @@ for (const p of pages) {
   if (/\son[a-z]+\s*=/i.test(html)) fail(p, 'inline-обработчик on*=');
   if (fails === before) console.log(`ok   ${p}`);
 }
-console.log(fails ? `${fails} ошибок` : `${pages.length} из ${pages.length} страниц ок`);
+// опасные приёмники HTML/кода: ответ модели и данные из localStorage идут только через textContent
+const SINKS = /\b(innerHTML|outerHTML|insertAdjacentHTML|document\.write|eval\s*\(|new\s+Function)\b/;
+for (const f of scripts) {
+  const before = fails;
+  fs.readFileSync(path.join(ROOT, f), 'utf8').split('\n').forEach((line, i) => {
+    if (SINKS.test(line)) fail(f, `строка ${i + 1}: опасный приёмник HTML/кода`);
+  });
+  if (fails === before) console.log(`ok   ${f}`);
+}
+console.log(fails ? `${fails} ошибок` : `${pages.length} из ${pages.length} страниц и ${scripts.length} скриптов ок`);
 process.exit(fails ? 1 : 0);

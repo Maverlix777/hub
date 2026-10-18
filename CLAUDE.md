@@ -11,7 +11,7 @@
   (inline-JS запрещён CSP). Поля: id, title, desc, status ("ready" | "soon"), href. Новое приложение = один объект.
 - `hub.js` — рисует плитки из APPS (только textContent). `style.css` — общие стили и темы.
 - `apps/chat.html`, `chat.js`, `chat.css` — чат с Claude API напрямую из браузера.
-- `tests/check-csp.cjs` — статическая проверка CSP и отсутствия внешних/inline-скриптов во всех страницах.
+- `tests/check-csp.cjs` — статическая проверка CSP, внешних/inline-скриптов во всех страницах (apps/ рекурсивно) и опасных приёмников HTML в .js (innerHTML, eval и т.п.).
 - `tests/e2e.cjs` — Playwright: 390/1280 px, плитки, тёмная тема, чат с локальным HTTPS-моком API.
 - `manifest.webmanifest`, `icons/` (180/192/512, без альфы), `tools/make-icons.py` — значок на экран телефона (PWA, без service worker).
 - Плитки по данным репо: Location Fusion (`location-fusion-ios`, iOS) — ссылка на приватный repo, на телефоне не установлено: нет подписи Network Extension;
@@ -38,4 +38,7 @@ content-type: application/json, anthropic-dangerous-direct-browser-access: true 
 - Ключ: только localStorage браузера. Не в коде, URL, логах, консоли, тексте ошибок, git.
 - Ответ модели — только textContent (или безопасный markdown без innerHTML с непроверенным текстом).
 - Пуш, публикация, хостинг — только после «да» владельца.
-- Хостинг: GitHub Pages. На бесплатном плане только для публичного repo; repo сейчас приватный.
+- Хостинг: GitHub Pages. На бесплатном плане только для публичного repo; перед публикацией repo приватный (после — обновить эту строку).
+- `maverlix777.github.io` — один origin на все project-сайты аккаунта: localStorage (ключ) виден их скриптам.
+  Не включать Pages в других repo аккаунта без своего домена (у mukha-v-storonu CNAME есть, он отдельный).
+- Ключ вводить внутри значка «Домой» и проверить на телефоне: хранилище значка и вкладки Safari, вероятно, раздельны (не проверено).
