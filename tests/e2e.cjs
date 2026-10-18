@@ -107,7 +107,7 @@ const api = https.createServer({ key: fs.readFileSync(path.join(tmp, 'k.pem')), 
       const page = await ctx.newPage(); watch(page);
       await page.goto(`${ORIGIN}/index.html`);
       const tiles = await page.locator('.tile').count();
-      check(`${width}px: 3 плитки`, tiles === 3, tiles);
+      check(`${width}px: 4 плитки`, tiles === 4, tiles);
       const overflow = await page.evaluate(() => document.documentElement.scrollWidth - window.innerWidth);
       check(`${width}px: нет горизонтального скролла`, overflow <= 0, overflow);
       const cols = await page.evaluate(() => getComputedStyle(document.getElementById('grid')).gridTemplateColumns.split(' ').length);
@@ -127,6 +127,20 @@ const api = https.createServer({ key: fs.readFileSync(path.join(tmp, 'k.pem')), 
       await page.locator('#hub').click();
       await page.waitForURL('**/index.html');
       check(`${width}px: кнопка «Хаб» возвращает на главную`, page.url() === `${ORIGIN}/index.html`, page.url());
+      // раздел «Загрузки»: реестр встроен в страницу (fetch под CSP заблокирован)
+      await page.locator('.tile[data-id="downloads"]').click();
+      await page.waitForURL('**/apps/downloads.html');
+      const cards = await page.locator('.dl').count();
+      check(`${width}px: «Загрузки» показывают запись из реестра`, cards === 1, cards);
+      const dl = await page.locator('.dl a.btn').evaluate((e) => e.getAttribute('href') + '|' + e.rel);
+      check(`${width}px: «Загрузки» ссылка https и noopener`, /^https:\/\/github\.com\/.+\|noopener noreferrer$/.test(dl), dl);
+      await page.fill('#q', 'ios');
+      const none = await page.locator('.dl').count();
+      check(`${width}px: «Загрузки» поиск отсекает лишнее`, none === 0, none);
+      const ov3 = await page.evaluate(() => document.documentElement.scrollWidth - window.innerWidth);
+      check(`${width}px: «Загрузки» без горизонтального скролла`, ov3 <= 0, ov3);
+      await page.locator('#hub').click();
+      await page.waitForURL('**/index.html');
       await ctx.close();
     }
 
