@@ -8,7 +8,7 @@
 - `node tests/check-csp.cjs` → `3 из 3 страниц и 3 скриптов ок`
 - `node tests/check-downloads.cjs` → `ok manifest: 1 запис.`; sha256 записи = digest артефакта CI (сверено через API)
 - `NODE_PATH=/opt/node-tools/node_modules node tests/e2e.cjs` → `71 прошло, 0 упало`
-- Подпуть `/hub/` (сервер с симлинком `hub`, 390 и 1280 px): `34 прошло, 0 упало` — manifest, start_url/scope, иконки, плитки, Загрузки, Чат, «← Хаб», ни одного ответа ≥400, CSP-нарушений нет. Скрипт одноразовый, в repo не добавлен.
+- Подпуть `/hub/` (390 и 1280 px): на 055de2e одноразовым скриптом `34 прошло, 0 упало`; теперь он в repo — `tests/check-subpath.cjs` (manifest, start_url/scope, иконки, плитки, Загрузки, «← Хаб», ответы ≥400, CSP).
 - Не проверено: живой сайт из облака (прокси режет github.io, 200 — по отчёту Mac-сессии), реальный api.anthropic.com, iPhone.
 
 ## Owner gates (решает только владелец)
