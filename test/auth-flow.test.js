@@ -6,6 +6,8 @@ import worker from '../src/worker.js';
 import { createVirtualAuthenticator } from './helpers/virtual-authenticator.js';
 
 const origin = 'https://kolobovdjp.org';
+const gatewayOrigin = 'https://kolobovdjp-hub.workers.dev';
+const gatewaySecret = 'test-gateway-secret-with-at-least-32-bytes';
 const rpID = 'kolobovdjp.org';
 const sql = await readFile(new URL('../migrations/0001_auth.sql', import.meta.url), 'utf8');
 const indexHtml = await readFile(new URL('../public/index.html', import.meta.url), 'utf8');
@@ -42,20 +44,50 @@ const db = {
 
 const env = {
   HUB_DB: db,
-  ASSETS: { async fetch(request) { return new Response(`asset:${new URL(request.url).pathname}`); } },
+  ASSETS: { async fetch(request) {
+    assetCalls += 1;
+    lastAssetRequest = request;
+    const url = new URL(request.url);
+    return new Response(`asset:${url.pathname}${url.search}`);
+  } },
   CANONICAL_ORIGIN: origin,
+  HUB_GATEWAY_ORIGIN: gatewayOrigin,
+  HUB_GATEWAY_SECRET: gatewaySecret,
   RP_ID: rpID,
   RP_NAME: 'Hub Test',
   RATE_LIMIT_HMAC_KEY: 'test-only-secret-not-logged-test-only',
 };
 
-function req(path, { method = 'GET', body, cookie, headers = {}, base = origin } = {}) {
+function req(path, { method = 'GET', body, cookie, headers = {}, base = origin, ip = '192.0.2.44' } = {}) {
   const values = new Headers(headers);
-  values.set('CF-Connecting-IP', '192.0.2.44');
+  values.set('CF-Connecting-IP', ip);
   if (body !== undefined) values.set('content-type', 'application/json');
   if (cookie) values.set('cookie', cookie);
   if (method === 'POST' && !Object.hasOwn(headers, 'origin')) values.set('origin', origin);
   return new Request(`${base}${path}`, { method, headers: values, body: body === undefined ? undefined : JSON.stringify(body) });
+}
+
+function gatewayReq(path, { method = 'GET', body, cookie, headers = {}, token = gatewaySecret, clientIP = '198.51.100.44' } = {}) {
+  const values = new Headers(headers);
+  values.set('CF-Connecting-IP', '192.0.2.44');
+  if (token !== null) values.set('X-Hub-Gateway-Token', token);
+  values.set('X-Hub-Client-IP', clientIP);
+  if (body !== undefined) values.set('content-type', 'application/json');
+  if (cookie) values.set('cookie', cookie);
+  if (method === 'POST' && !values.has('origin')) values.set('origin', origin);
+  return new Request(`${gatewayOrigin}${path}`, { method, headers: values, body: body === undefined ? undefined : JSON.stringify(body) });
+}
+
+function countingBindings(source = env) {
+  const calls = { db: 0, assets: 0 };
+  const countedDb = {
+    prepare(...args) { calls.db += 1; return source.HUB_DB.prepare(...args); },
+    batch(...args) { calls.db += 1; return source.HUB_DB.batch(...args); },
+  };
+  const countedAssets = {
+    async fetch(...args) { calls.assets += 1; return source.ASSETS.fetch(...args); },
+  };
+  return { env: { ...source, HUB_DB: countedDb, ASSETS: countedAssets }, calls };
 }
 
 async function jsonResponse(response) { return response.json(); }
@@ -70,6 +102,8 @@ let registerResponse;
 let auth;
 let sessionCookie;
 let loginOptions;
+let lastAssetRequest;
+let assetCalls = 0;
 
 before(async () => {
   const response = await worker.fetch(req('/hub/api/register/options', { method: 'POST', body: { username: 'test.user' } }), env);
@@ -143,11 +177,109 @@ test('CSRF, unknown origin, traversal, and missing rate-limit secret fail closed
   assert.equal(unavailable.status, 503);
 });
 
+test('gateway rejects missing, bad, short-secret, and non-allowlisted origins before D1 or Assets', async () => {
+  const cases = [
+    { request: gatewayReq('/hub/api/login/options', { method: 'POST', body: { username: 'test.user' }, token: null }), bindings: env },
+    { request: gatewayReq('/hub/', { token: 'wrong-gateway-token' }), bindings: env },
+    { request: gatewayReq('/hub/', { token: gatewaySecret }), bindings: { ...env, HUB_GATEWAY_SECRET: undefined } },
+    { request: gatewayReq('/hub/', { token: gatewaySecret }), bindings: { ...env, HUB_GATEWAY_SECRET: 'too-short' } },
+    { request: gatewayReq('/hub/', { token: gatewaySecret }), bindings: { ...env, HUB_GATEWAY_ORIGIN: 'http://kolobovdjp-hub.workers.dev' } },
+    { request: req('/hub/', { base: 'https://not-the-gateway.workers.dev', headers: { 'X-Hub-Gateway-Token': gatewaySecret, 'X-Hub-Client-IP': '198.51.100.44' } }), bindings: env },
+  ];
+  for (const item of cases) {
+    const counted = countingBindings(item.bindings);
+    const response = await worker.fetch(item.request, counted.env);
+    assert.equal(response.status, 404);
+    assert.deepEqual(counted.calls, { db: 0, assets: 0 });
+  }
+
+  const missingRequest = gatewayReq('/hub/api/login/options', { method: 'POST', body: { username: 'test.user' }, token: null });
+  const counted = countingBindings();
+  assert.equal((await worker.fetch(missingRequest, counted.env)).status, 404);
+  assert.equal(missingRequest.bodyUsed, false);
+  assert.deepEqual(counted.calls, { db: 0, assets: 0 });
+
+  const noClientIP = countingBindings();
+  const noIPRequest = gatewayReq('/hub/', { clientIP: '' });
+  assert.equal((await worker.fetch(noIPRequest, noClientIP.env)).status, 503);
+  assert.deepEqual(noClientIP.calls, { db: 0, assets: 0 });
+});
+
+test('gateway preserves canonical Origin, Cookie, query, and signed login while stripping transport headers', async () => {
+  const beforeAssets = assetCalls;
+  const loginPage = await worker.fetch(gatewayReq('/hub/login/?source=site'), env);
+  assert.equal(loginPage.status, 200);
+  assert.equal(await loginPage.text(), 'asset:/login.html?source=site');
+  assert.equal(new URL(lastAssetRequest.url).origin, origin);
+  assert.equal(lastAssetRequest.headers.has('X-Hub-Gateway-Token'), false);
+  assert.equal(lastAssetRequest.headers.has('X-Hub-Client-IP'), false);
+
+  const session = await worker.fetch(gatewayReq('/hub/api/session', { cookie: sessionCookie }), env);
+  assert.deepEqual(await jsonResponse(session), { username: 'test.user', entitlement: 'free' });
+
+  const start = await worker.fetch(gatewayReq('/hub/api/login/options', {
+    method: 'POST', body: { username: 'test.user' }, clientIP: '198.51.100.61',
+  }), env);
+  assert.equal(start.status, 200);
+  loginOptions = await jsonResponse(start);
+  const assertion = await auth.authenticationResponse(loginOptions.options, 3);
+  const finish = await worker.fetch(gatewayReq('/hub/api/login/verify', {
+    method: 'POST', body: { challengeId: loginOptions.challengeId, response: assertion }, clientIP: '198.51.100.61',
+  }), env);
+  assert.equal(finish.status, 200);
+  const gatewayCookie = cookieFrom(finish);
+  assert.match(finish.headers.get('set-cookie'), /__Host-hub_session=/);
+  assert.equal(finish.headers.has('X-Hub-Gateway-Token'), false);
+  assert.equal(finish.headers.has('X-Hub-Client-IP'), false);
+
+  const app = await worker.fetch(gatewayReq('/hub/?view=home', { cookie: gatewayCookie }), env);
+  assert.equal(app.status, 200);
+  assert.equal(await app.text(), 'asset:/index.html?view=home');
+  assert.equal(new URL(lastAssetRequest.url).origin, origin);
+  assert.equal(assetCalls, beforeAssets + 2);
+  assert.equal(lastAssetRequest.headers.has('X-Hub-Gateway-Token'), false);
+  assert.equal(lastAssetRequest.headers.has('X-Hub-Client-IP'), false);
+});
+
+test('gateway Origin failures reject before database access', async () => {
+  const counted = countingBindings();
+  const badOrigin = gatewayReq('/hub/api/login/options', {
+    method: 'POST', body: { username: 'test.user' }, headers: { origin: 'https://attacker.example' },
+  });
+  const response = await worker.fetch(badOrigin, counted.env);
+  assert.equal(response.status, 403);
+  assert.deepEqual(counted.calls, { db: 0, assets: 0 });
+});
+
+test('only validated gateway traffic uses forwarded client IP; canonical requests ignore spoofed forwarding headers', async () => {
+  sqlite.exec('DELETE FROM rate_limits');
+  await worker.fetch(req('/hub/api/login/options', {
+    method: 'POST', body: { username: 'test.user' }, ip: '192.0.2.60',
+    headers: { 'X-Hub-Client-IP': '203.0.113.9', 'X-Hub-Gateway-Token': gatewaySecret },
+  }), env);
+  await worker.fetch(req('/hub/api/login/options', {
+    method: 'POST', body: { username: 'test.user' }, ip: '192.0.2.61',
+    headers: { 'X-Hub-Client-IP': '203.0.113.9', 'X-Hub-Gateway-Token': gatewaySecret },
+  }), env);
+  assert.equal(sqlite.prepare('SELECT count(*) AS n FROM rate_limits').get().n, 4);
+
+  sqlite.exec('DELETE FROM rate_limits');
+  await worker.fetch(gatewayReq('/hub/api/login/options', {
+    method: 'POST', body: { username: 'test.user' }, clientIP: '198.51.100.71',
+  }), env);
+  await worker.fetch(gatewayReq('/hub/api/login/options', {
+    method: 'POST', body: { username: 'test.user' }, clientIP: '198.51.100.72',
+  }), env);
+  assert.equal(sqlite.prepare('SELECT count(*) AS n FROM rate_limits').get().n, 4);
+});
+
 test('public auth UI, aliases, protected assets, and logout have expected routing', async () => {
   const loginPage = await worker.fetch(req('/hub/login/'), env);
   assert.equal(loginPage.status, 200);
   assert.equal(loginPage.headers.get('content-security-policy'), "frame-ancestors 'none'");
   assert.equal(await loginPage.text(), 'asset:/login.html');
+  assert.equal(lastAssetRequest.headers.has('X-Hub-Gateway-Token'), false);
+  assert.equal(lastAssetRequest.headers.has('X-Hub-Client-IP'), false);
   assert.match(indexHtml, /connect-src 'self' https:\/\/api\.anthropic\.com/);
   assert.equal((await worker.fetch(req('/хаб/'), env)).status, 308);
   const headLogin = await worker.fetch(req('/hub/login', { method: 'HEAD' }), env);

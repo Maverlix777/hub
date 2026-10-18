@@ -7,6 +7,8 @@ import {
 } from '@simplewebauthn/server';
 
 const SESSION_COOKIE = '__Host-hub_session';
+const GATEWAY_TOKEN_HEADER = 'X-Hub-Gateway-Token';
+const GATEWAY_CLIENT_IP_HEADER = 'X-Hub-Client-IP';
 const SESSION_TTL_MS = 14 * 24 * 60 * 60 * 1000;
 const CHALLENGE_TTL_MS = 2 * 60 * 1000;
 const RATE_WINDOW_MS = 60 * 1000;
@@ -47,6 +49,57 @@ function randomToken(size = 32) {
 async function sha256(value) {
   const digest = await crypto.subtle.digest('SHA-256', new TextEncoder().encode(value));
   return base64url(digest);
+}
+
+async function sha256Bytes(value) {
+  return new Uint8Array(await crypto.subtle.digest('SHA-256', new TextEncoder().encode(value)));
+}
+
+function constantTimeEqual(left, right) {
+  if (left.length !== right.length) return false;
+  let difference = 0;
+  for (let index = 0; index < left.length; index += 1) difference |= left[index] ^ right[index];
+  return difference === 0;
+}
+
+function isExactOrigin(value) {
+  if (typeof value !== 'string' || !value) return false;
+  try {
+    const parsed = new URL(value);
+    return parsed.protocol === 'https:' && parsed.origin === value && parsed.pathname === '/'
+      && !parsed.username && !parsed.password && !parsed.port && !parsed.search && !parsed.hash;
+  } catch {
+    return false;
+  }
+}
+
+async function gatewayAuthorized(request, env) {
+  const secret = env.HUB_GATEWAY_SECRET;
+  const supplied = request.headers.get(GATEWAY_TOKEN_HEADER);
+  if (typeof secret !== 'string' || new TextEncoder().encode(secret).byteLength < 32 || supplied === null) return false;
+  const [expectedDigest, suppliedDigest] = await Promise.all([sha256Bytes(secret), sha256Bytes(supplied)]);
+  return constantTimeEqual(expectedDigest, suppliedDigest);
+}
+
+function usableForwardedClientIP(value) {
+  return typeof value === 'string' && value.length > 0 && value.length <= 64
+    && value === value.trim() && !/[\s,\u0000-\u001f\u007f]/.test(value);
+}
+
+function stripGatewayHeaders(request, targetUrl = request.url) {
+  const copy = new Request(targetUrl, request);
+  const headers = new Headers(copy.headers);
+  headers.delete(GATEWAY_TOKEN_HEADER);
+  headers.delete(GATEWAY_CLIENT_IP_HEADER);
+  return new Request(copy, { headers });
+}
+
+function rewriteGatewayRequest(request, canonicalOrigin) {
+  const source = new URL(request.url);
+  const canonical = new URL(canonicalOrigin);
+  canonical.pathname = source.pathname;
+  canonical.search = source.search;
+  return stripGatewayHeaders(request, canonical.toString());
 }
 
 function cookieValue(request, name) {
@@ -112,9 +165,9 @@ function originAllowed(request, canonicalOrigin) {
   return request.headers.get('origin') === canonicalOrigin;
 }
 
-async function applyRateLimit(db, env, request, scope, identifier, limit, now) {
+async function applyRateLimit(db, env, request, scope, identifier, limit, now, trustedClientIP = null) {
   if (!rateLimitKeyReady(env)) return false;
-  const ip = request.headers.get('CF-Connecting-IP');
+  const ip = trustedClientIP || request.headers.get('CF-Connecting-IP');
   if (!ip) return false;
   const keyMaterial = `${scope}\0${ip}\0${identifier}`;
   const cryptoKey = await crypto.subtle.importKey(
@@ -183,7 +236,6 @@ function safePublicPath(url) {
 function withPath(request, path) {
   const url = new URL(request.url);
   url.pathname = path;
-  url.search = '';
   return new Request(url, request);
 }
 
@@ -207,7 +259,7 @@ function responseWithCookie(response, cookie) {
   return new Response(response.body, { status: response.status, statusText: response.statusText, headers });
 }
 
-async function api(request, env, path, session, webauthn, now) {
+async function api(request, env, path, session, webauthn, now, trustedClientIP = null) {
   const db = env.HUB_DB;
   if (request.method === 'GET' && path === '/hub/api/session') {
     return session ? json({ username: session.username, entitlement: session.tier }) : json({ error: 'unauthorized' }, 401);
@@ -218,8 +270,8 @@ async function api(request, env, path, session, webauthn, now) {
     const body = await readJson(request);
     const username = normalizeUsername(body?.username);
     if (!username) return json({ error: 'invalid_username' }, 400);
-    const underLimit = await applyRateLimit(db, env, request, 'register', username, 5, now)
-      && await applyRateLimit(db, env, request, 'ip', 'auth', 20, now);
+    const underLimit = await applyRateLimit(db, env, request, 'register', username, 5, now, trustedClientIP)
+      && await applyRateLimit(db, env, request, 'ip', 'auth', 20, now, trustedClientIP);
     if (!underLimit) return json({ error: rateLimitKeyReady(env) ? 'rate_limited' : 'auth_unavailable' }, rateLimitKeyReady(env) ? 429 : 503);
     const exists = await db.prepare('SELECT id FROM users WHERE username = ?').bind(username).first();
     if (exists) return json({ error: 'registration_unavailable' }, 409);
@@ -290,8 +342,8 @@ async function api(request, env, path, session, webauthn, now) {
     const body = await readJson(request);
     const username = normalizeUsername(body?.username);
     if (!username) return json({ error: 'login_unavailable' }, 401);
-    const underLimit = await applyRateLimit(db, env, request, 'login', username, 8, now)
-      && await applyRateLimit(db, env, request, 'ip', 'auth', 20, now);
+    const underLimit = await applyRateLimit(db, env, request, 'login', username, 8, now, trustedClientIP)
+      && await applyRateLimit(db, env, request, 'ip', 'auth', 20, now, trustedClientIP);
     if (!underLimit) return json({ error: rateLimitKeyReady(env) ? 'rate_limited' : 'auth_unavailable' }, rateLimitKeyReady(env) ? 429 : 503);
     const user = await db.prepare('SELECT id FROM users WHERE username = ?').bind(username).first();
     if (!user) return json({ error: 'login_unavailable' }, 401);
@@ -367,8 +419,22 @@ export function createWorker(webauthn = {
     async fetch(request, env) {
       const now = Date.now();
       const canonicalOrigin = env.CANONICAL_ORIGIN || 'https://kolobovdjp.org';
+      const receivedUrl = new URL(request.url);
+      let trustedClientIP = null;
+      if (receivedUrl.origin === canonicalOrigin) {
+        request = stripGatewayHeaders(request);
+      } else {
+        if (!isExactOrigin(env.HUB_GATEWAY_ORIGIN) || receivedUrl.origin !== env.HUB_GATEWAY_ORIGIN) {
+          return new Response('Not found', { status: 404, headers: noStore });
+        }
+        if (!await gatewayAuthorized(request, env)) return new Response('Not found', { status: 404, headers: noStore });
+        trustedClientIP = request.headers.get(GATEWAY_CLIENT_IP_HEADER);
+        if (!usableForwardedClientIP(trustedClientIP)) {
+          return new Response('Service unavailable', { status: 503, headers: noStore });
+        }
+        request = rewriteGatewayRequest(request, canonicalOrigin);
+      }
       const url = new URL(request.url);
-      if (url.origin !== canonicalOrigin) return new Response('Not found', { status: 404, headers: noStore });
       if (!env.HUB_DB || !env.ASSETS || !env.RP_ID) return new Response('Service unavailable', { status: 503, headers: noStore });
 
       let decodedPath;
@@ -389,9 +455,12 @@ export function createWorker(webauthn = {
       let pathname;
       try { pathname = safePublicPath(url); } catch { pathname = null; }
       if (!pathname) return new Response('Bad request', { status: 400, headers: noStore });
+      if (pathname.startsWith('/hub/api/') && request.method === 'POST' && !originAllowed(request, canonicalOrigin)) {
+        return json({ error: 'forbidden_origin' }, 403);
+      }
       const session = await loadSession(request, env, now);
       if (pathname.startsWith('/hub/api/')) {
-        return api(request, env, pathname, session, webauthn, now);
+        return api(request, env, pathname, session, webauthn, now, trustedClientIP);
       }
       if (pathname === '/hub/login' && ['GET', 'HEAD'].includes(request.method)) return Response.redirect(`${canonicalOrigin}/hub/login/`, 308);
       if (isPublicLoginAsset(pathname) && ['GET', 'HEAD'].includes(request.method)) {
