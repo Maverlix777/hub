@@ -15,6 +15,7 @@
 - `tests/check-csp.cjs` — статическая проверка CSP, внешних/inline-скриптов во всех страницах (apps/ рекурсивно) и опасных приёмников HTML в .js (innerHTML, eval и т.п.).
 - `tests/check-downloads.cjs` — проверка реестра сборок (обязательные поля, sha256, дата, https).
 - `tests/e2e.cjs` — Playwright: 390/1280 px, плитки, тёмная тема, чат с локальным HTTPS-моком API.
+- `tests/check-subpath.cjs` — Playwright под подпутём `/hub/` (как на Pages): свой сервер отдаёт дерево только по `/hub/`, корень даёт 404; manifest, иконки, плитки, Загрузки, «← Хаб», ответы ≥400, CSP.
 - `manifest.webmanifest`, `icons/` (180/192/512, без альфы), `tools/make-icons.py` — значок на экран телефона (PWA, без service worker).
 - Плитки по данным репо: Location Fusion (`location-fusion-ios`, iOS) — ссылка на приватный repo, на телефоне не установлено: нет подписи Network Extension;
   Доктор (`doktor`, iOS через SideStore) — ссылка на релизы публичного `doktor-sidestore`. URL-схемы у Доктора нет.
@@ -25,6 +26,7 @@ python3 -m http.server 8765          # открыть http://127.0.0.1:8765/
 node tests/check-csp.cjs             # CSP всех страниц
 node tests/check-downloads.cjs       # реестр «Загрузок»
 NODE_PATH=/opt/node-tools/node_modules node tests/e2e.cjs   # нужен openssl, python3, порт 443 (root)
+NODE_PATH=/opt/node-tools/node_modules node tests/check-subpath.cjs   # пути под /hub/, порт выбирается сам
 ```
 e2e подменяет api.anthropic.com через `--host-resolver-rules` на локальный мок: код не трогается, реальный ключ не нужен.
 
