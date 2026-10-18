@@ -8,6 +8,7 @@ const fs = require('fs');
 const path = require('path');
 
 const ROOT = path.resolve(__dirname, '..');
+const SITE_ROOT = process.env.HUB_SITE_ROOT ? path.resolve(process.env.HUB_SITE_ROOT) : ROOT;
 const PREFIX = '/hub/';
 const MIME = {
   '.html': 'text/html; charset=utf-8', '.js': 'text/javascript; charset=utf-8', '.css': 'text/css; charset=utf-8',
@@ -21,7 +22,7 @@ function check(name, ok, extra) {
 }
 
 function jsonBlock(file, id) {
-  const html = fs.readFileSync(path.join(ROOT, file), 'utf8');
+  const html = fs.readFileSync(path.join(SITE_ROOT, file), 'utf8');
   const m = html.match(new RegExp(`<script type="application/json" id="${id}">([\\s\\S]*?)</script>`));
   return JSON.parse(m[1]);
 }
@@ -31,8 +32,8 @@ const server = http.createServer((req, res) => {
   if (!url.startsWith(PREFIX)) { res.writeHead(404); res.end('not found'); return; }
   let rel = url.slice(PREFIX.length);
   if (rel === '' || rel.endsWith('/')) rel += 'index.html';
-  const file = path.resolve(ROOT, rel);
-  if (!file.startsWith(ROOT + path.sep) || !fs.existsSync(file) || !fs.statSync(file).isFile()) { res.writeHead(404); res.end('not found'); return; }
+  const file = path.resolve(SITE_ROOT, rel);
+  if (!file.startsWith(SITE_ROOT + path.sep) || !fs.existsSync(file) || !fs.statSync(file).isFile()) { res.writeHead(404); res.end('not found'); return; }
   res.writeHead(200, { 'content-type': MIME[path.extname(file)] || 'application/octet-stream' });
   fs.createReadStream(file).pipe(res);
 });

@@ -1,0 +1,11 @@
+.downloads { max-width: 760px; display: flex; flex-direction: column; gap: 12px; }
+.downloads input { width: 100%; }
+.dl-list { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: 12px; }
+.dl { background: var(--card); border: 1px solid var(--line); border-radius: 14px; padding: 14px; display: flex; flex-direction: column; gap: 6px; }
+.dl h2 { margin: 0; font-size: 17px; }
+.dl .tags { display: flex; flex-wrap: wrap; gap: 6px; }
+.dl .tags span { font-size: 12px; padding: 2px 8px; border-radius: 999px; border: 1px solid var(--line); color: var(--muted); }
+.dl .note { font-size: 14px; }
+.dl .sum { font-size: 12px; color: var(--muted); word-break: break-all; }
+.dl a.btn { align-self: flex-start; margin-top: 4px; background: var(--accent); color: var(--accent-fg); border-color: var(--accent); }
+.empty { color: var(--muted); }

@@ -1,0 +1,74 @@
+name: Hub checks and Pages
+
+on:
+  pull_request:
+  push:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  checks:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+      - name: Install Cloudflare Worker dependencies
+        run: npm ci
+      - name: Test WebAuthn and session worker
+        run: npm test
+      - name: Build allowlisted public site
+        run: python3 tools/build-site.py --output "$RUNNER_TEMP/hub-public"
+      - name: Check public artifact contents and local paths
+        run: python3 tests/check-site-artifact.py
+      - name: Check CSP and browser-safe rendering
+        run: node tests/check-csp.cjs
+      - name: Validate release catalog
+        run: node tests/check-downloads.cjs
+      - name: Check opt-in legacy Pages redirects
+        run: python3 tests/check-pages-redirect.py
+      - name: Install isolated browser-test dependency
+        run: |
+          npm install --prefix "$RUNNER_TEMP/hub-ci" --no-save playwright
+          "$RUNNER_TEMP/hub-ci/node_modules/.bin/playwright" install --with-deps chromium
+      - name: Allow the local mock API to bind HTTPS port 443
+        run: sudo setcap cap_net_bind_service=+ep "$(command -v node)"
+      - name: Check subpath behavior of the deployable artifact
+        env:
+          HUB_SITE_ROOT: ${{ runner.temp }}/hub-public
+          NODE_PATH: ${{ runner.temp }}/hub-ci/node_modules
+        run: node tests/check-subpath.cjs
+      - name: Run browser tests against the deployable artifact and local API mock
+        env:
+          HUB_SITE_ROOT: ${{ runner.temp }}/hub-public
+          NODE_PATH: ${{ runner.temp }}/hub-ci/node_modules
+        run: node tests/e2e.cjs
+
+  deploy:
+    if: github.event_name == 'push' && github.ref == 'refs/heads/main'
+    needs: checks
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      pages: write
+      id-token: write
+    environment:
+      name: github-pages
+      url: ${{ steps.deployment.outputs.page_url }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.x'
+      - name: Build allowlisted public site
+        run: python3 tools/build-site.py --output "$RUNNER_TEMP/hub-public" --redirect-to "https://kolobovdjp.org/hub/"
+      - uses: actions/configure-pages@v5
+      - uses: actions/upload-pages-artifact@v3
+        with:
+          path: ${{ runner.temp }}/hub-public
+      - name: Deploy to GitHub Pages
+        id: deployment
+        uses: actions/deploy-pages@v4

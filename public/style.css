@@ -1,0 +1,75 @@
+:root {
+  --bg: #f6f6f4;
+  --fg: #1b1b1a;
+  --muted: #6b6b66;
+  --card: #ffffff;
+  --line: #deded8;
+  --accent: #2f5bd3;
+  --accent-fg: #ffffff;
+  --err-bg: #fdecec;
+  --err-fg: #8a1414;
+  color-scheme: light;
+}
+@media (prefers-color-scheme: dark) {
+  :root {
+    --bg: #141413;
+    --fg: #ececea;
+    --muted: #9a9a94;
+    --card: #1f1f1d;
+    --line: #34342f;
+    --accent: #7d9cf0;
+    --accent-fg: #0e0e0d;
+    --err-bg: #3a1717;
+    --err-fg: #ffb4b4;
+    color-scheme: dark;
+  }
+}
+* { box-sizing: border-box; }
+html, body { margin: 0; }
+body {
+  background: var(--bg);
+  color: var(--fg);
+  font: 16px/1.45 system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
+  min-height: 100dvh;
+}
+.bar {
+  display: flex; align-items: center; gap: 12px;
+  padding: max(12px, env(safe-area-inset-top)) max(16px, env(safe-area-inset-right)) 12px max(16px, env(safe-area-inset-left));
+  border-bottom: 1px solid var(--line);
+}
+.bar h1 { font-size: 20px; margin: 0; flex: 1; }
+main { padding: 16px max(16px, env(safe-area-inset-right)) 16px max(16px, env(safe-area-inset-left)); max-width: 1100px; margin: 0 auto; }
+
+.grid {
+  list-style: none; margin: 0; padding: 0;
+  display: grid; gap: 12px;
+  grid-template-columns: repeat(auto-fill, minmax(160px, 1fr));
+}
+.tile {
+  display: flex; flex-direction: column; gap: 6px;
+  min-height: 120px; padding: 16px;
+  background: var(--card); color: var(--fg);
+  border: 1px solid var(--line); border-radius: 14px;
+  text-decoration: none;
+}
+a.tile:hover, a.tile:focus-visible { border-color: var(--accent); outline: none; }
+.tile.soon { opacity: .55; cursor: not-allowed; user-select: none; }
+.tile-title { font-weight: 600; font-size: 17px; }
+.tile-desc { color: var(--muted); font-size: 14px; }
+.badge {
+  margin-top: auto; align-self: flex-start;
+  font-size: 12px; padding: 2px 8px; border-radius: 999px;
+  border: 1px solid var(--line); color: var(--muted);
+}
+
+button, select, input, textarea {
+  font: inherit; color: var(--fg); background: var(--card);
+  border: 1px solid var(--line); border-radius: 10px; padding: 8px 12px;
+}
+button { cursor: pointer; min-height: 40px; }
+button.primary { background: var(--accent); color: var(--accent-fg); border-color: var(--accent); }
+button:disabled { opacity: .5; cursor: default; }
+a.btn {
+  color: var(--fg); text-decoration: none;
+  border: 1px solid var(--line); border-radius: 10px; padding: 8px 12px;
+}
