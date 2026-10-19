@@ -132,14 +132,18 @@ const api = https.createServer({ key: fs.readFileSync(path.join(tmp, 'k.pem')), 
       await page.locator('.tile[data-id="downloads"]').click();
       await page.waitForURL('**/apps/downloads.html');
       const cards = await page.locator('.dl').count();
-      check(`${width}px: «Загрузки» показывают доступные и ожидающие записи из реестра`, cards === 2, cards);
+      check(`${width}px: «Загрузки» показывают доступные и ожидающие записи из реестра`, cards === 3, cards);
       const unavailableLinks = await page.locator('.dl').filter({ hasText: 'Nebula Pop' }).locator('a.btn').count();
       check(`${width}px: недоступная Nebula Pop не показывает «Скачать»`, unavailableLinks === 0, unavailableLinks);
       const lfDownload = await page.locator('.dl').filter({ hasText: 'Location Fusion Test' }).locator('a.btn').evaluate((e) => e.href + '|' + e.rel);
       check(`${width}px: build 9 ведёт на публичный IPA с noopener`,
         lfDownload === 'https://kolobovdjp.org/locationfusion/install/LocationFusion-Test-build9-UI.ipa|noopener noreferrer', lfDownload);
-      const dl = await page.locator('.dl a.btn').evaluate((e) => e.getAttribute('href') + '|' + e.rel);
-      check(`${width}px: «Загрузки» ссылка https и noopener`, /^https:\/\/[^|]+\|noopener noreferrer$/.test(dl), dl);
+      const kbDownload = await page.locator('.dl').filter({ hasText: 'Krenkballs' }).locator('a.btn').evaluate((e) => e.href + '|' + e.rel);
+      check(`${width}px: Krenkballs 75 ведёт на публичный APK из релиза хаба с noopener`,
+        kbDownload === 'https://github.com/Maverlix777/hub/releases/download/krenkballs-android-75-debug/Krenkballs-android-75-debug.apk|noopener noreferrer', kbDownload);
+      const dlAll = await page.locator('.dl a.btn').evaluateAll((els) => els.map((e) => e.getAttribute('href') + '|' + e.rel));
+      check(`${width}px: «Загрузки» все ссылки https и noopener (кнопок: 2)`,
+        dlAll.length === 2 && dlAll.every((d) => /^https:\/\/[^|]+\|noopener noreferrer$/.test(d)), dlAll.join(' ; '));
       await page.fill('#q', 'nebula');
       const none = await page.locator('.dl').count();
       check(`${width}px: «Загрузки» поиск отсекает лишнее`, none === 1, none);
