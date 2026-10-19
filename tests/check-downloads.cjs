@@ -27,6 +27,12 @@ if (!lf || lf.url !== 'https://kolobovdjp.org/locationfusion/install/LocationFus
     lf.size !== 22141414 || lf.sha256 !== 'bc799908eb6f9f6e09c6811a7ddde94d51c9eb80b2ecb4c359067881933dd0e5') {
   errors.push('Location Fusion build 9 catalog entry does not match the verified artifact');
 }
+const kb = items.find((it) => it.project === 'Krenkballs' && it.version === '75 (7340a86)');
+if (!kb || kb.available === false ||
+    kb.url !== 'https://github.com/Maverlix777/hub/releases/download/krenkballs-android-75-debug/Krenkballs-android-75-debug.apk' ||
+    kb.size !== 11599092 || kb.sha256 !== '9e0a26373a7ef04ceb229a61e0aa91edb134ed05a81b7e8e500dc0b56e2189b8') {
+  errors.push('Krenkballs build 75 catalog entry does not match the verified artifact');
+}
 const unavailable = items.find((it) => it.project === 'Nebula Pop');
 if (!unavailable || unavailable.available !== false || unavailable.url) {
   errors.push('Nebula Pop must remain clearly unavailable until a public file URL exists');
