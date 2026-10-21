@@ -3,7 +3,7 @@
 <head>
 <meta charset="utf-8">
 <meta http-equiv="Content-Security-Policy" content="default-src 'self'; connect-src 'self' https://api.anthropic.com; style-src 'self' 'unsafe-inline'; base-uri 'self'; form-action 'self'">
-<!-- Реестр сборок: добавить файл = добавить один объект. Поля: project, platform, kind, version, file, size, sha256, date (если известна), url (https) для доступных файлов, note; available:false скрывает ссылку.
+<!-- Реестр сборок: добавить файл = добавить один объект. Поля: project, platform, kind, version, file, size, sha256, date (обязательна для доступных файлов), url (https) для доступных файлов, note; available:false скрывает ссылку.
      JSON, а не fetch: CSP connect-src не включает 'self'. Бинарники в git не класть; недоступный артефакт не получает кнопку загрузки. -->
 <script type="application/json" id="manifest">
   [
@@ -40,7 +40,20 @@
       "size": 22141414,
       "sha256": "bc799908eb6f9f6e09c6811a7ddde94d51c9eb80b2ecb4c359067881933dd0e5",
       "url": "https://kolobovdjp.org/locationfusion/install/LocationFusion-Test-build9-UI.ipa",
-      "note": "Unsigned preview for SideStore, iOS 17.4+. Uses external LocalDevVPN; install and full location scenario from this URL are not verified."
+      "note": "Неподписанная предварительная сборка для SideStore, iOS 17.4+. Использует внешний LocalDevVPN. Установка и полный сценарий геолокации по этой ссылке не проверены. Дата публикации каталога, не дата сборки.",
+      "date": "2026-10-18"
+    },
+    {
+      "project": "Доктор",
+      "platform": "iOS",
+      "kind": "unsigned-ipa-sidestore",
+      "version": "1.0.3",
+      "file": "Doktor.ipa",
+      "size": 6565410,
+      "sha256": "13a7480f5904c97261b6bdebf65a61f45e1178e673c629165008f4c9bc60b67c",
+      "date": "2026-10-18",
+      "url": "https://github.com/Maverlix777/doktor-sidestore/releases/latest",
+      "note": "Публичный релиз для SideStore. Размер и SHA256 относятся к версии 1.0.3; ссылка открывает последний релиз, сверяйте версию файла. На устройстве не проверено."
     },
     {
       "project": "Flood Fill",

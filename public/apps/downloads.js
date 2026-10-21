@@ -29,7 +29,21 @@
       for (const x of [i.platform, i.kind, i.date, mb]) if (x) tags.append(el('span', '', x));
       li.append(tags);
       if (i.note) li.append(el('div', 'note', i.note));
-      li.append(el('div', 'sum', 'sha256: ' + i.sha256));
+      if (/^[0-9a-f]{64}$/.test(i.sha256 || '')) {
+        li.append(el('div', 'sum', 'sha256: ' + i.sha256));
+        const copy = el('button', '', 'Копировать SHA256');
+        copy.type = 'button';
+        copy.setAttribute('aria-live', 'polite');
+        copy.addEventListener('click', async () => {
+          try {
+            await navigator.clipboard.writeText(i.sha256);
+            copy.textContent = 'Скопировано SHA256';
+          } catch (_) {
+            copy.textContent = 'Не удалось скопировать SHA256';
+          }
+        });
+        li.append(copy);
+      }
       if (i.available !== false && /^https:\/\//i.test(i.url || '')) {
         const a = el('a', 'btn', 'Скачать');
         a.href = i.url;
