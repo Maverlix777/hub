@@ -152,8 +152,8 @@ const web = http.createServer((req, res) => {
       check(`${width}px: чат без горизонтального скролла`, ov2 <= 0, ov2);
       await page.screenshot({ path: path.join(SHOTS, `chat-${width}.png`), fullPage: true });
       await page.locator('#hub').click();
-      await page.waitForURL('**/index.html');
-      check(`${width}px: кнопка «Хаб» возвращает на главную`, page.url() === `${SITE}index.html`, page.url());
+      await page.waitForURL((u) => u.href === SITE || u.href === `${SITE}index.html`);
+      check(`${width}px: кнопка «Хаб» возвращает на главную`, [SITE, `${SITE}index.html`].includes(page.url()), page.url());
       // раздел «Загрузки»: реестр встроен в страницу (fetch под CSP заблокирован)
       await page.locator('.tile[data-id="downloads"]').click();
       await page.waitForURL('**/apps/downloads.html');
@@ -178,7 +178,7 @@ const web = http.createServer((req, res) => {
       const ov3 = await page.evaluate(() => document.documentElement.scrollWidth - window.innerWidth);
       check(`${width}px: «Загрузки» без горизонтального скролла`, ov3 <= 0, ov3);
       await page.locator('#hub').click();
-      await page.waitForURL('**/index.html');
+      await page.waitForURL((u) => u.href === SITE || u.href === `${SITE}index.html`);
       await ctx.close();
     }
 
@@ -253,9 +253,12 @@ const web = http.createServer((req, res) => {
       for (let i = 0; i < 200 && postCount() <= sentAt; i++) await sleep(50);
       await page.waitForSelector('#send:not([hidden])', { timeout: 15000 });
     };
+    // «Забыть ключ» только если он есть и настройки раскрыты (после «Очистить» или перезагрузки ключа может уже не быть)
+    const openSettings = async () => { if (!(await page.locator('#settings').evaluate((e) => e.open))) await page.click('#settings summary'); };
+    const forget = async () => { await openSettings(); if (!(await page.locator('#forgetKey').isDisabled())) await page.click('#forgetKey'); };
     await page.goto(`${SITE}apps/chat.html`);
     check('без ключа настройки раскрыты', await page.locator('#settings').evaluate((e) => e.open));
-    await page.fill('#key', KEY_OK);
+    await openSettings(); await page.fill('#key', KEY_OK);
     await page.click('#saveKey');
     check('поле ключа очищено после сохранения', (await page.inputValue('#key')) === '');
     await page.fill('#system', 'Отвечай коротко.');
@@ -287,19 +290,27 @@ const web = http.createServer((req, res) => {
     const bHtml = await last.evaluate((e) => e.innerHTML);
     check('ответ как текст: <b> экранирован, не тег', bHtml.startsWith('&lt;b&gt;x&lt;/b&gt;') && (await page.locator('.msg b').count()) === 0, bHtml.slice(0, 30));
 
-    // ключ живёт только в памяти вкладки: ни в localStorage, ни в sessionStorage, ни под каким именем
-    const stores = await page.evaluate(() => JSON.stringify([Object.entries(localStorage), Object.entries(sessionStorage)]));
-    check('ключ не в localStorage/sessionStorage (ни под каким ключом)', !ALL_KEYS.some((k) => stores.includes(k)) && !stores.includes('hub.chat.key'), stores.slice(0, 120));
+    // ключ никогда не лежит в localStorage (ни под каким именем); допустимо: память вкладки или sessionStorage этой вкладки (SITE-11)
+    const localStore = await page.evaluate(() => JSON.stringify(Object.entries(localStorage)));
+    check('ключ не в localStorage (ни под каким ключом)', !ALL_KEYS.some((k) => localStore.includes(k)) && !localStore.includes('hub.chat.key'), localStore.slice(0, 120));
+    const keyInSession = await page.evaluate((k) => Object.values(sessionStorage).includes(k), KEY_OK);
+    console.log('info ключ в sessionStorage вкладки: ' + keyInSession);
 
-    // история переживает перезагрузку, ключ — нет
+    // история переживает перезагрузку; ключ переживает только если страница держит его в sessionStorage
     await page.reload();
     const msgs = await page.locator('.msg').count();
     check('история в localStorage после перезагрузки', msgs === 2, msgs);
-    check('после перезагрузки ключ надо вводить заново', (await page.textContent('#keyState')) === 'Ключ не задан.' && await page.locator('#forgetKey').isDisabled() &&
-      await page.locator('#settings').evaluate((e) => e.open));
+    if (keyInSession) {
+      check('после перезагрузки ключ из sessionStorage на месте', !(await page.locator('#forgetKey').isDisabled()) && (await page.textContent('#keyState')) !== 'Ключ не задан.');
+      await forget();
+      check('«Забыть ключ» чистит sessionStorage', !(await page.evaluate((k) => Object.values(sessionStorage).includes(k), KEY_OK)));
+    } else {
+      check('после перезагрузки ключ надо вводить заново', (await page.textContent('#keyState')) === 'Ключ не задан.' && await page.locator('#forgetKey').isDisabled() &&
+        await page.locator('#settings').evaluate((e) => e.open));
+    }
 
     // второй ход идёт с историей, доигрываем до конца
-    await page.fill('#key', KEY_OK); await page.click('#saveKey');
+    await openSettings(); await page.fill('#key', KEY_OK); await page.click('#saveKey');
     await page.selectOption('#model', 'claude-haiku-5-5');
     await page.fill('#input', 'ещё');
     await clickSend();
@@ -312,21 +323,21 @@ const web = http.createServer((req, res) => {
       b2.messages.map((m) => m.role).join(',') === 'user,assistant,user', b2.messages.map((m) => m.role).join(','));
 
     // ошибка в середине потока
-    await page.click('#forgetKey');
-    await page.fill('#key', KEY_MIDERR); await page.click('#saveKey');
+    await forget();
+    await openSettings(); await page.fill('#key', KEY_MIDERR); await page.click('#saveKey');
     await page.fill('#input', 'сбой'); await clickSend();
     await done();
     const midErr = await page.locator('.msg.error .body').last().textContent();
     check('ошибка в потоке показана как есть', midErr.includes('"overloaded_error"') && midErr.includes('Overloaded'), midErr.replace(/\n/g, ' | '));
 
     // 401
-    await page.click('#forgetKey');
+    await forget();
     check('«Забыть ключ» сбрасывает состояние и блокируется', (await page.textContent('#keyState')) === 'Ключ не задан.' && await page.locator('#forgetKey').isDisabled());
-    await page.fill('#key', KEY_OK); await page.click('#saveKey');
-    await page.fill('#key', KEY_OK); await page.click('#forgetKey');
+    await openSettings(); await page.fill('#key', KEY_OK); await page.click('#saveKey');
+    await openSettings(); await page.fill('#key', KEY_OK); await forget();
     check('«Забыть ключ» очищает поле ввода и состояние', (await page.inputValue('#key')) === '' &&
       (await page.textContent('#keyState')) === 'Ключ не задан.' && await page.locator('#forgetKey').isDisabled());
-    await page.fill('#key', KEY_401); await page.click('#saveKey');
+    await openSettings(); await page.fill('#key', KEY_401); await page.click('#saveKey');
     await page.fill('#input', 'проверка 401'); await clickSend();
     await done();
     const err = await page.locator('.msg.error .body').last().textContent();
@@ -346,7 +357,7 @@ const web = http.createServer((req, res) => {
       (await page.evaluate(() => localStorage.getItem('hub.chat.history'))) === null);
 
     // --- исходы без нормального ответа ---
-    const setKey = async (k) => { await page.click('#forgetKey'); await page.fill('#key', k); await page.click('#saveKey'); };
+    const setKey = async (k) => { await forget(); await openSettings(); await page.fill('#key', k); await page.click('#saveKey'); };
     const lastBody = () => page.locator('.msg.assistant .body').last();
     const histNow = () => page.evaluate(() => JSON.parse(localStorage.getItem('hub.chat.history') || '[]'));
 
