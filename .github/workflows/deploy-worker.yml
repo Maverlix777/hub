@@ -1,5 +1,11 @@
 name: Deploy Worker
 
+# DANGER: production kolobovdjp-hub is a PRIVATE build (owner-download, notifications,
+# gateway auth) that does not exist in this public repo. Deploying main from here
+# overwrites it and breaks /hub/* (this happened 2026-10-21, 13:53-14:12 UTC, and was
+# rolled back by hand). Run only if you really mean to replace the private build;
+# the `confirm` input must be typed exactly, and --keep-vars keeps existing Worker vars.
+
 # Manual only. Every run is a production deploy of kolobovdjp-hub and needs the
 # owner's explicit go for that run; nothing here fires on push.
 #
@@ -25,6 +31,11 @@ on:
         description: Comma-separated zone routes to sync (empty = leave routes untouched)
         type: string
         default: ''
+      confirm:
+        description: 'Type exactly: OVERWRITE PRIVATE PRODUCTION BUILD'
+        type: string
+        required: true
+        default: ''
 
 permissions:
   contents: read
@@ -38,6 +49,14 @@ jobs:
     runs-on: ubuntu-latest
     environment: production
     steps:
+      - name: Require explicit overwrite confirmation
+        env:
+          CONFIRM: ${{ inputs.confirm }}
+        run: |
+          if [ "$CONFIRM" != "OVERWRITE PRIVATE PRODUCTION BUILD" ]; then
+            echo "::error::Refusing to deploy. Production kolobovdjp-hub is a private build that this public repo does not contain; deploying main overwrites it. To proceed, set input 'confirm' to exactly: OVERWRITE PRIVATE PRODUCTION BUILD"
+            exit 1
+          fi
       - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
       - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4.4.0
         with:
@@ -103,7 +122,7 @@ jobs:
         env:
           CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
           CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
-        run: npx wrangler deploy --config wrangler.production.local.jsonc
+        run: npx wrangler deploy --keep-vars --config wrangler.production.local.jsonc
       - name: Smoke-check security headers on the live route
         run: |
           curl -sSI --max-time 20 https://kolobovdjp.org/hub/style.css | tr -d '\r' | tee "$RUNNER_TEMP/headers.txt"
