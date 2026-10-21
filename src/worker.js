@@ -307,12 +307,12 @@ function responseWithCookie(response, cookie) {
   return new Response(response.body, { status: response.status, statusText: response.statusText, headers });
 }
 
-async function api(request, env, path, session, webauthn, now, trustedClientIP = null) {
+async function api(request, env, path, session, webauthn, now, canonicalOrigin, trustedClientIP = null) {
   const db = env.HUB_DB;
   if (request.method === 'GET' && path === '/hub/api/session') {
     return session ? json({ username: session.username, entitlement: session.tier }) : json({ error: 'unauthorized' }, 401);
   }
-  if (request.method === 'POST' && !originAllowed(request, env.CANONICAL_ORIGIN)) return json({ error: 'forbidden_origin' }, 403);
+  // Origin of POST requests is already checked once in fetch().
 
   if (request.method === 'POST' && path === '/hub/api/register/options') {
     const body = await readJson(request);
@@ -355,7 +355,7 @@ async function api(request, env, path, session, webauthn, now, trustedClientIP =
       verified = await webauthn.verifyRegistrationResponse({
         response: body.response,
         expectedChallenge: challenge.challenge,
-        expectedOrigin: env.CANONICAL_ORIGIN,
+        expectedOrigin: canonicalOrigin,
         expectedRPID: env.RP_ID,
         requireUserVerification: true,
       });
@@ -425,7 +425,7 @@ async function api(request, env, path, session, webauthn, now, trustedClientIP =
       verified = await webauthn.verifyAuthenticationResponse({
         response: body.response,
         expectedChallenge: challenge.challenge,
-        expectedOrigin: env.CANONICAL_ORIGIN,
+        expectedOrigin: canonicalOrigin,
         expectedRPID: env.RP_ID,
         credential: {
           id: row.id,
@@ -505,7 +505,7 @@ export function createWorker(webauthn = {
       }
       const session = await loadSession(request, env, now);
       if (pathname.startsWith('/hub/api/')) {
-        return api(request, env, pathname, session, webauthn, now, trustedClientIP);
+        return api(request, env, pathname, session, webauthn, now, canonicalOrigin, trustedClientIP);
       }
       if (pathname === '/hub/login' && ['GET', 'HEAD'].includes(request.method)) return Response.redirect(`${canonicalOrigin}/hub/login/`, 308);
       if (isPublicLoginAsset(pathname) && ['GET', 'HEAD'].includes(request.method)) {
