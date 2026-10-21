@@ -14,9 +14,10 @@ with tempfile.TemporaryDirectory(prefix="hub-site-check-") as temp:
     bad = [name for name in forbidden if (site / name).exists()]
     if bad:
         raise SystemExit(f"private/source files in Pages artifact: {bad}")
-    expected = {"index.html", "hub.js", "style.css", "manifest.webmanifest", "apps/chat.html",
-                "apps/chat.js", "apps/chat.css", "apps/downloads.html", "apps/downloads.js",
-                "apps/downloads.css", "icons/icon-180.png", "icons/icon-192.png", "icons/icon-512.png"}
+    expected = {"index.html", "hub.js", "style.css", "manifest.webmanifest", "login.html", "login.js",
+                "login.css", "apps/chat.html", "apps/chat.js", "apps/chat.css", "apps/downloads.html",
+                "apps/downloads.js", "apps/downloads.css", "icons/icon-180.png", "icons/icon-192.png",
+                "icons/icon-512.png"}
     present = {str(path.relative_to(site)) for path in site.rglob("*") if path.is_file()}
     missing = sorted(expected - present)
     extra = sorted(present - expected)
@@ -27,7 +28,13 @@ with tempfile.TemporaryDirectory(prefix="hub-site-check-") as temp:
         for ref in re.findall(r'<(?:script|link)[^>]+(?:src|href)="([^"]+)"', html):
             if ref.startswith(("https://", "http://", "#")):
                 continue
-            resolved = (html_path.parent / ref.split("?", 1)[0]).resolve()
+            clean = ref.split("?", 1)[0]
+            if clean.startswith("/hub/"):
+                resolved = (site / clean[len("/hub/"):]).resolve()  # /hub/ is the artifact root
+            elif clean.startswith("/"):
+                raise SystemExit(f"absolute path outside /hub/: {html_path.relative_to(site)} -> {ref}")
+            else:
+                resolved = (html_path.parent / clean).resolve()
             if site.resolve() not in resolved.parents and resolved != site.resolve():
                 raise SystemExit(f"path escapes public root: {html_path.relative_to(site)} -> {ref}")
             if not resolved.is_file():

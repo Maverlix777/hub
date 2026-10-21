@@ -4,15 +4,18 @@
 'use strict';
 const { chromium } = require('playwright');
 const https = require('https');
+const http = require('http');
 const fs = require('fs');
 const os = require('os');
 const path = require('path');
-const { execFileSync, spawn } = require('child_process');
+const { execFileSync } = require('child_process');
 
 const ROOT = path.resolve(__dirname, '..');
 const WEB_ROOT = process.env.HUB_SITE_ROOT ? path.resolve(process.env.HUB_SITE_ROOT) : ROOT;
 const PORT = 8765;
+const PREFIX = '/hub/';
 const ORIGIN = `http://127.0.0.1:${PORT}`;
+const SITE = ORIGIN + PREFIX;
 const KEY_OK = 'sk-ant-TEST-stream-0000';
 const KEY_401 = 'sk-ant-TEST-bad-1111';
 const KEY_MIDERR = 'sk-ant-TEST-miderr-2222';
@@ -78,10 +81,33 @@ const api = https.createServer({ key: fs.readFileSync(path.join(tmp, 'k.pem')), 
   });
 });
 
+// --- статика под /hub/ и мок API Worker (сессия, выход, страница входа) ---
+const MIME = {
+  '.html': 'text/html; charset=utf-8', '.js': 'text/javascript; charset=utf-8', '.css': 'text/css; charset=utf-8',
+  '.png': 'image/png', '.svg': 'image/svg+xml', '.json': 'application/json', '.webmanifest': 'application/manifest+json',
+};
+let sessionOk = true; // false = «аноним»: /hub/api/session отвечает 401
+const web = http.createServer((req, res) => {
+  const url = decodeURIComponent(req.url.split('?')[0]);
+  if (!url.startsWith(PREFIX)) { res.writeHead(404); return res.end('not found'); }
+  if (req.method === 'GET' && url === PREFIX + 'api/session') {
+    if (!sessionOk) { res.writeHead(401, { 'content-type': 'application/json' }); return res.end('{"error":"unauthorized"}'); }
+    res.writeHead(200, { 'content-type': 'application/json' });
+    return res.end('{"username":"test","entitlement":"free"}');
+  }
+  if (req.method === 'POST' && url === PREFIX + 'api/logout') { res.writeHead(204); return res.end(); }
+  let rel = url.slice(PREFIX.length);
+  if (rel === 'login/') rel = 'login.html';
+  if (rel === '' || rel.endsWith('/')) rel += 'index.html';
+  const file = path.resolve(WEB_ROOT, rel);
+  if (!file.startsWith(WEB_ROOT + path.sep) || !fs.existsSync(file) || !fs.statSync(file).isFile()) { res.writeHead(404); return res.end('not found'); }
+  res.writeHead(200, { 'content-type': MIME[path.extname(file)] || 'application/octet-stream' });
+  fs.createReadStream(file).pipe(res);
+});
+
 (async () => {
   await new Promise((r) => api.listen(443, '127.0.0.1', r));
-  const web = spawn('python3', ['-m', 'http.server', String(PORT), '--bind', '127.0.0.1'], { cwd: WEB_ROOT, stdio: 'ignore' });
-  await sleep(700);
+  await new Promise((r) => web.listen(PORT, '127.0.0.1', r));
   fs.mkdirSync(SHOTS, { recursive: true });
 
   const browser = await chromium.launch({
@@ -106,7 +132,7 @@ const api = https.createServer({ key: fs.readFileSync(path.join(tmp, 'k.pem')), 
     for (const width of [390, 1280]) {
       const ctx = await browser.newContext({ viewport: { width, height: 844 }, colorScheme: 'light', ignoreHTTPSErrors: true });
       const page = await ctx.newPage(); watch(page);
-      await page.goto(`${ORIGIN}/index.html`);
+      await page.goto(`${SITE}index.html`);
       const tiles = await page.locator('.tile').count();
       check(`${width}px: 4 плитки`, tiles === 4, tiles);
       const overflow = await page.evaluate(() => document.documentElement.scrollWidth - window.innerWidth);
@@ -121,13 +147,13 @@ const api = https.createServer({ key: fs.readFileSync(path.join(tmp, 'k.pem')), 
       check(`${width}px: «Location Fusion» ведёт на страницу публичной сборки`, lf === 'A|https://kolobovdjp.org/locationfusion/install/|noopener noreferrer', lf);
       await page.locator('.tile[data-id="chat"]').click();
       await page.waitForURL('**/apps/chat.html');
-      check(`${width}px: плитка «Чат» открывает apps/chat.html`, page.url() === `${ORIGIN}/apps/chat.html`, page.url());
+      check(`${width}px: плитка «Чат» открывает apps/chat.html`, page.url() === `${SITE}apps/chat.html`, page.url());
       const ov2 = await page.evaluate(() => document.documentElement.scrollWidth - window.innerWidth);
       check(`${width}px: чат без горизонтального скролла`, ov2 <= 0, ov2);
       await page.screenshot({ path: path.join(SHOTS, `chat-${width}.png`), fullPage: true });
       await page.locator('#hub').click();
       await page.waitForURL('**/index.html');
-      check(`${width}px: кнопка «Хаб» возвращает на главную`, page.url() === `${ORIGIN}/index.html`, page.url());
+      check(`${width}px: кнопка «Хаб» возвращает на главную`, page.url() === `${SITE}index.html`, page.url());
       // раздел «Загрузки»: реестр встроен в страницу (fetch под CSP заблокирован)
       await page.locator('.tile[data-id="downloads"]').click();
       await page.waitForURL('**/apps/downloads.html');
@@ -156,31 +182,48 @@ const api = https.createServer({ key: fs.readFileSync(path.join(tmp, 'k.pem')), 
       await ctx.close();
     }
 
+    // --- сессия: аноним уходит на вход, вошедший видит имя аккаунта ---
+    {
+      const ctx = await browser.newContext({ viewport: { width: 390, height: 844 }, ignoreHTTPSErrors: true });
+      const page = await ctx.newPage(); watch(page);
+      sessionOk = true;
+      await page.goto(`${SITE}index.html`);
+      await page.waitForFunction(() => document.getElementById('account-name').textContent.length > 0);
+      const acc = await page.textContent('#account-name');
+      check('сессия 200: в #account-name показано имя «test»', acc.includes('test'), acc);
+      sessionOk = false;
+      await page.goto(`${SITE}index.html`);
+      await page.waitForURL('**/hub/login/');
+      check('сессия 401: /hub/index.html редиректит на /hub/login/', page.url() === `${SITE}login/`, page.url());
+      sessionOk = true;
+      await ctx.close();
+    }
+
     // --- PWA: манифест, значки, устанавливаемость по мнению Chromium ---
     {
       const ctx = await browser.newContext({ viewport: { width: 390, height: 844 } });
       const page = await ctx.newPage(); watch(page);
-      for (const p of ['/index.html', '/apps/chat.html']) {
-        await page.goto(ORIGIN + p);
+      for (const p of ['index.html', 'apps/chat.html']) {
+        await page.goto(SITE + p);
         const cdp = await ctx.newCDPSession(page);
         const man = await cdp.send('Page.getAppManifest');
         const parsed = man.errors.length === 0 && JSON.parse(man.data || '{}').name === 'Хаб';
-        check(`PWA ${p}: манифест найден и разобран`, parsed && man.url === `${ORIGIN}/manifest.webmanifest`, `${man.url} ошибок ${man.errors.length}`);
+        check(`PWA ${p}: манифест найден и разобран`, parsed && man.url === `${SITE}manifest.webmanifest`, `${man.url} ошибок ${man.errors.length}`);
         // Page.getInstallabilityErrors в headless отдаёт [] даже без манифеста, поэтому проверяем поля сами
         const m = JSON.parse(man.data || '{}');
         const sizes = (m.icons || []).map((i) => i.sizes);
         const okFields = m.name && m.start_url && ['standalone', 'fullscreen', 'minimal-ui'].includes(m.display) && sizes.includes('192x192') && sizes.includes('512x512');
         check(`PWA ${p}: обязательные поля манифеста (name, start_url, display, значки 192/512)`, !!okFields, `${m.display} ${sizes.join(',')}`);
         const apple = await page.evaluate(() => { const l = document.querySelector('link[rel="apple-touch-icon"]'); return l && l.href; });
-        check(`PWA ${p}: apple-touch-icon`, apple === `${ORIGIN}/icons/icon-180.png`, apple);
+        check(`PWA ${p}: apple-touch-icon`, apple === `${SITE}icons/icon-180.png`, apple);
       }
       for (const s of [180, 192, 512]) {
-        const r = await page.request.get(`${ORIGIN}/icons/icon-${s}.png`);
+        const r = await page.request.get(`${SITE}icons/icon-${s}.png`);
         const b = await r.body();
         const w = b.readUInt32BE(16), h = b.readUInt32BE(20), colorType = b[25];
         check(`значок ${s}: 200, PNG ${s}x${s}, без альфы`, r.status() === 200 && w === s && h === s && colorType === 2, `${r.status()} ${w}x${h} ct=${colorType}`);
       }
-      const mr = await page.request.get(`${ORIGIN}/manifest.webmanifest`);
+      const mr = await page.request.get(`${SITE}manifest.webmanifest`);
       console.log('info manifest content-type: ' + mr.headers()['content-type']);
       await ctx.close();
     }
@@ -189,11 +232,11 @@ const api = https.createServer({ key: fs.readFileSync(path.join(tmp, 'k.pem')), 
     {
       const ctx = await browser.newContext({ viewport: { width: 390, height: 844 }, colorScheme: 'dark' });
       const page = await ctx.newPage(); watch(page);
-      await page.goto(`${ORIGIN}/index.html`);
+      await page.goto(`${SITE}index.html`);
       const bg = await page.evaluate(() => getComputedStyle(document.body).backgroundColor);
       check('тёмная тема: фон хаба', bg === 'rgb(20, 20, 19)', bg);
       await page.screenshot({ path: path.join(SHOTS, 'hub-390-dark.png'), fullPage: true });
-      await page.goto(`${ORIGIN}/apps/chat.html`);
+      await page.goto(`${SITE}apps/chat.html`);
       const bg2 = await page.evaluate(() => getComputedStyle(document.body).backgroundColor);
       check('тёмная тема: фон чата', bg2 === 'rgb(20, 20, 19)', bg2);
       await ctx.close();
@@ -202,7 +245,15 @@ const api = https.createServer({ key: fs.readFileSync(path.join(tmp, 'k.pem')), 
     // --- чат ---
     const ctx = await browser.newContext({ viewport: { width: 390, height: 844 }, colorScheme: 'light', ignoreHTTPSErrors: true });
     const page = await ctx.newPage(); watch(page);
-    await page.goto(`${ORIGIN}/apps/chat.html`);
+    // «Отправить» отправляет запрос не сразу (сначала проверка сессии), поэтому конец хода = запрос дошёл до мока И кнопка вернулась
+    const postCount = () => apiLog.filter((e) => e.method === 'POST').length;
+    let sentAt = 0;
+    const clickSend = async () => { sentAt = postCount(); await page.click('#send'); };
+    const done = async () => {
+      for (let i = 0; i < 200 && postCount() <= sentAt; i++) await sleep(50);
+      await page.waitForSelector('#send:not([hidden])', { timeout: 15000 });
+    };
+    await page.goto(`${SITE}apps/chat.html`);
     check('без ключа настройки раскрыты', await page.locator('#settings').evaluate((e) => e.open));
     await page.fill('#key', KEY_OK);
     await page.click('#saveKey');
@@ -236,18 +287,23 @@ const api = https.createServer({ key: fs.readFileSync(path.join(tmp, 'k.pem')), 
     const bHtml = await last.evaluate((e) => e.innerHTML);
     check('ответ как текст: <b> экранирован, не тег', bHtml.startsWith('&lt;b&gt;x&lt;/b&gt;') && (await page.locator('.msg b').count()) === 0, bHtml.slice(0, 30));
 
-    // история переживает перезагрузку
+    // ключ живёт только в памяти вкладки: ни в localStorage, ни в sessionStorage, ни под каким именем
+    const stores = await page.evaluate(() => JSON.stringify([Object.entries(localStorage), Object.entries(sessionStorage)]));
+    check('ключ не в localStorage/sessionStorage (ни под каким ключом)', !ALL_KEYS.some((k) => stores.includes(k)) && !stores.includes('hub.chat.key'), stores.slice(0, 120));
+
+    // история переживает перезагрузку, ключ — нет
     await page.reload();
     const msgs = await page.locator('.msg').count();
     check('история в localStorage после перезагрузки', msgs === 2, msgs);
+    check('после перезагрузки ключ надо вводить заново', (await page.textContent('#keyState')) === 'Ключ не задан.' && await page.locator('#forgetKey').isDisabled() &&
+      await page.locator('#settings').evaluate((e) => e.open));
 
     // второй ход идёт с историей, доигрываем до конца
-    check('с ключом настройки свёрнуты', !(await page.locator('#settings').evaluate((e) => e.open)));
-    await page.click('#settings summary');
+    await page.fill('#key', KEY_OK); await page.click('#saveKey');
     await page.selectOption('#model', 'claude-haiku-5-5');
     await page.fill('#input', 'ещё');
-    await page.click('#send');
-    await page.waitForSelector('#send:not([hidden])', { timeout: 15000 });
+    await clickSend();
+    await done();
     const full = await page.locator('.msg.assistant .body').last().textContent();
     const post2 = apiLog.filter((e) => e.method === 'POST')[1];
     const b2 = JSON.parse(post2.body);
@@ -258,17 +314,21 @@ const api = https.createServer({ key: fs.readFileSync(path.join(tmp, 'k.pem')), 
     // ошибка в середине потока
     await page.click('#forgetKey');
     await page.fill('#key', KEY_MIDERR); await page.click('#saveKey');
-    await page.fill('#input', 'сбой'); await page.click('#send');
-    await page.waitForSelector('#send:not([hidden])', { timeout: 10000 });
+    await page.fill('#input', 'сбой'); await clickSend();
+    await done();
     const midErr = await page.locator('.msg.error .body').last().textContent();
     check('ошибка в потоке показана как есть', midErr.includes('"overloaded_error"') && midErr.includes('Overloaded'), midErr.replace(/\n/g, ' | '));
 
     // 401
     await page.click('#forgetKey');
-    check('«Забыть ключ» удаляет ключ', (await page.evaluate(() => localStorage.getItem('hub.chat.key'))) === null);
+    check('«Забыть ключ» сбрасывает состояние и блокируется', (await page.textContent('#keyState')) === 'Ключ не задан.' && await page.locator('#forgetKey').isDisabled());
+    await page.fill('#key', KEY_OK); await page.click('#saveKey');
+    await page.fill('#key', KEY_OK); await page.click('#forgetKey');
+    check('«Забыть ключ» очищает поле ввода и состояние', (await page.inputValue('#key')) === '' &&
+      (await page.textContent('#keyState')) === 'Ключ не задан.' && await page.locator('#forgetKey').isDisabled());
     await page.fill('#key', KEY_401); await page.click('#saveKey');
-    await page.fill('#input', 'проверка 401'); await page.click('#send');
-    await page.waitForSelector('#send:not([hidden])', { timeout: 10000 });
+    await page.fill('#input', 'проверка 401'); await clickSend();
+    await done();
     const err = await page.locator('.msg.error .body').last().textContent();
     console.log('raw 401 в UI:\n' + err);
     check('401 выводится как есть', err.startsWith('HTTP 401\n') && err.includes('"authentication_error"') && err.includes('invalid x-api-key'));
@@ -287,14 +347,13 @@ const api = https.createServer({ key: fs.readFileSync(path.join(tmp, 'k.pem')), 
 
     // --- исходы без нормального ответа ---
     const setKey = async (k) => { await page.click('#forgetKey'); await page.fill('#key', k); await page.click('#saveKey'); };
-    const done = () => page.waitForSelector('#send:not([hidden])', { timeout: 10000 });
     const lastBody = () => page.locator('.msg.assistant .body').last();
     const histNow = () => page.evaluate(() => JSON.parse(localStorage.getItem('hub.chat.history') || '[]'));
 
     // пустой ответ с причиной
     await setKey(KEY_REFUSAL);
     const userBefore = await page.locator('.msg.user').count();
-    await page.fill('#input', 'вопрос без ответа'); await page.click('#send'); await done();
+    await page.fill('#input', 'вопрос без ответа'); await clickSend(); await done();
     const emptyMsg = await page.locator('.msg.error .body').last().textContent();
     check('пустой ответ: причина stop_reason показана', emptyMsg.includes('refusal'), emptyMsg);
     check('пустой ответ: вопрос вернулся в поле, пузырь вопроса убран',
@@ -304,18 +363,18 @@ const api = https.createServer({ key: fs.readFileSync(path.join(tmp, 'k.pem')), 
 
     // 401 тоже не оставляет вопрос в истории без ответа
     await setKey(KEY_401);
-    await page.fill('#input', 'ещё раз 401'); await page.click('#send'); await done();
+    await page.fill('#input', 'ещё раз 401'); await clickSend(); await done();
     const h2 = await histNow();
     check('ошибка HTTP: история не кончается на user', h2.length === 0 || h2[h2.length - 1].role !== 'user', JSON.stringify(h2));
 
     // обрезанный ответ помечен
     await setKey(KEY_MAXTOK);
-    await page.fill('#input', 'длинный'); await page.click('#send'); await done();
+    await page.fill('#input', 'длинный'); await clickSend(); await done();
     const mtNote = await page.locator('.msg.assistant .note').last().textContent();
     check('max_tokens: ответ сохранён и помечен stop_reason', mtNote === 'stop_reason: max_tokens' && (await lastBody().textContent()).includes('часть1'), mtNote);
 
     await setKey(KEY_NOSTOP);
-    await page.fill('#input', 'обрыв'); await page.click('#send'); await done();
+    await page.fill('#input', 'обрыв'); await clickSend(); await done();
     const nsNote = await page.locator('.msg.assistant .note').last().textContent();
     check('поток без stop_reason: ответ помечен как возможно оборванный', nsNote.includes('без stop_reason'), nsNote);
 
@@ -331,7 +390,7 @@ const api = https.createServer({ key: fs.readFileSync(path.join(tmp, 'k.pem')), 
       await page.locator('#send').isVisible() && !(await page.locator('#input').isDisabled()));
     const aborted = apiLog.filter((e) => e.method === 'POST').pop().aborted;
     check('«Очистить» посреди ответа: соединение оборвано', aborted === true, aborted);
-    await page.fill('#input', 'после очистки'); await page.click('#send');
+    await page.fill('#input', 'после очистки'); await clickSend();
     await page.waitForFunction(() => { const b = [...document.querySelectorAll('.msg.assistant .body')].pop(); return b && b.textContent.length > 0; });
     await page.click('#stop'); await done();
     const afterClear = JSON.parse(apiLog.filter((e) => e.method === 'POST').pop().body).messages;
@@ -342,7 +401,7 @@ const api = https.createServer({ key: fs.readFileSync(path.join(tmp, 'k.pem')), 
     {
       const ctx2 = await browser.newContext({ viewport: { width: 390, height: 844 }, ignoreHTTPSErrors: true });
       const p2 = await ctx2.newPage(); watch(p2);
-      await p2.goto(`${ORIGIN}/apps/chat.html`);
+      await p2.goto(`${SITE}apps/chat.html`);
       await p2.evaluate(() => localStorage.setItem('hub.chat.history', '[null,{"role":"user","content":5},{"role":"user","content":"a"},{"role":"assistant","content":"b"},{"role":"user","content":"c"}]'));
       await p2.reload();
       check('битая история: валидные реплики на месте, хвостовой вопрос — в поле ввода',
@@ -367,14 +426,15 @@ const api = https.createServer({ key: fs.readFileSync(path.join(tmp, 'k.pem')), 
     check('ключ только в x-api-key к api.anthropic.com', leaks.length === 0, leaks.map((r) => r.url).join(', '));
     const keyHosts = [...new Set(requests.filter((r) => r.headers['x-api-key']).map((r) => new URL(r.url).host))];
     check('x-api-key уходил только на api.anthropic.com', keyHosts.join() === 'api.anthropic.com', keyHosts.join());
-    const unexpectedCsp = cspViolations.filter((l) => !l.includes('example.com'));
+    // frame-ancestors в <meta> браузер игнорирует и пишет предупреждение: это не нарушение (заголовок ставит Worker)
+    const unexpectedCsp = cspViolations.filter((l) => !l.includes('example.com') && !/'frame-ancestors' is ignored when delivered via a <meta>/.test(l));
     check('нет CSP-нарушений кроме проверочного', unexpectedCsp.length === 0, unexpectedCsp.join(' | '));
   } catch (e) {
     failed++;
     console.log('FAIL исключение: ' + (e && e.stack));
   } finally {
     await browser.close();
-    web.kill();
+    web.close();
     api.close();
     fs.rmSync(tmp, { recursive: true, force: true });
     console.log(`\nИтог: ${passed} прошло, ${failed} упало`);
