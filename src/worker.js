@@ -22,14 +22,19 @@ const noStore = {
 };
 const STATIC_CACHE_CONTROL = 'private, max-age=3600';
 const CACHEABLE_STATIC = /^\/hub\/(?:icons\/.+|style\.css|login\.css|manifest\.webmanifest|apps\/[^/]+\.css)$/;
+// Doktor pages are public and session-free, so they may be cached by shared caches.
+const DOKTOR_CACHE_CONTROL = 'public, max-age=300';
 
 // Single exit point: every response (JSON, redirects, ASSETS) gets the same security headers.
 // Redirect/ASSETS responses may have immutable headers, so the response is always rebuilt.
 function finalize(response, request) {
   const headers = new Headers(response.headers);
   let cacheControl = 'no-store';
-  if (response.status === 200 && ['GET', 'HEAD'].includes(request.method) && !headers.has('set-cookie')
-    && CACHEABLE_STATIC.test(new URL(request.url).pathname)) cacheControl = STATIC_CACHE_CONTROL;
+  const pathname = new URL(request.url).pathname;
+  if (response.status === 200 && ['GET', 'HEAD'].includes(request.method) && !headers.has('set-cookie')) {
+    if (CACHEABLE_STATIC.test(pathname)) cacheControl = STATIC_CACHE_CONTROL;
+    else if (pathname.startsWith('/doktor/')) cacheControl = DOKTOR_CACHE_CONTROL;
+  }
   headers.set('cache-control', cacheControl);
   headers.set('x-content-type-options', 'nosniff');
   headers.set('referrer-policy', 'no-referrer');
@@ -508,7 +513,7 @@ export function createWorker(webauthn = {
         const response = await env.ASSETS.fetch(withPath(request, assetPath));
         const headers = { ...Object.fromEntries(response.headers), ...noStore };
         delete headers['set-cookie'];
-        if (response.status === 200) headers['cache-control'] = 'public, max-age=300';
+        if (response.status === 200) headers['cache-control'] = DOKTOR_CACHE_CONTROL; // finalize() keeps it for /doktor/*
         return new Response(response.body, { status: response.status, headers });
       }
       if (pathname.startsWith('/hub/api/') && request.method === 'POST' && !originAllowed(request, canonicalOrigin)) {
