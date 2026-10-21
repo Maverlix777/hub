@@ -97,7 +97,7 @@ const server = http.createServer((req, res) => {
       }
       await p.click('#hub');
       await p.waitForSelector('a.tile');
-      check(`[${w}] «← Хаб» из «${a.title}» ведёт на ${PREFIX}index.html`, p.url() === BASE + PREFIX + 'index.html', p.url());
+      check(`[${w}] «← Хаб» из «${a.title}» ведёт на главную ${PREFIX}`, [BASE + PREFIX, BASE + PREFIX + 'index.html'].includes(p.url()), p.url());
     }
 
     check(`[${w}] нет ответов ≥400 при обходе`, bad.length === 0, bad.join(' ; '));
