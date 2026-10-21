@@ -26,8 +26,12 @@
   let controller = null;
   let apiKey = '';
   let signedIn = true;
+  let checking = null;
+  let checkingSend = false;
+  const sessionStatus = $('session-status');
 
   function clearChatData() {
+    if (controller) controller.abort();
     history = [];
     apiKey = '';
     try {
@@ -40,27 +44,44 @@
     renderKeyState();
   }
 
+  function endSession() {
+    if (!signedIn) return;
+    signedIn = false;
+    clearChatData();
+    window.location.replace('/hub/login/');
+  }
   window.addEventListener('storage', (event) => {
-    if (event.key === 'hub.session.logout') {
-      clearChatData();
-      signedIn = false;
-      window.location.replace('/hub/login/');
-    }
+    if (event.key === 'hub.session.logout') endSession();
   });
 
-  async function ensureSession() {
-    try {
-      const response = await fetch('/hub/api/session', { credentials: 'same-origin', cache: 'no-store' });
-      if (response.ok) return true;
-    } catch { /* fail closed below */ }
-    clearChatData();
-    signedIn = false;
-    window.location.replace('/hub/login/');
-    return false;
+  function ensureSession() {
+    if (!signedIn) return Promise.resolve(false);
+    if (checking) return checking;
+    checking = (async () => {
+      try {
+        const response = await fetch('/hub/api/session', { credentials: 'same-origin', cache: 'no-store' });
+        if (!signedIn) return false;
+        if (response.status === 401 || response.status === 403) { endSession(); return false; }
+        if (!response.ok) throw new Error('session_unavailable');
+        const session = await response.json();
+        if (!signedIn) return false;
+        if (!session || typeof session.username !== 'string' || !session.username.trim()) throw new Error('invalid_session');
+        sessionStatus.hidden = true;
+        sessionStatus.textContent = '';
+        return true;
+      } catch {
+        if (signedIn) {
+          sessionStatus.textContent = 'Нет связи с сервером. Черновик и история сохранены. Попробуйте отправить позже.';
+          sessionStatus.hidden = false;
+        }
+        return false;
+      } finally { checking = null; }
+    })();
+    return checking;
   }
-  window.addEventListener('focus', () => { if (signedIn) ensureSession(); });
+  window.addEventListener('focus', () => { if (signedIn) return ensureSession(); });
   document.addEventListener('visibilitychange', () => {
-    if (!document.hidden && signedIn) ensureSession();
+    if (!document.hidden && signedIn) return ensureSession();
   });
 
   // --- API key lives only in this page's memory ---
@@ -159,8 +180,11 @@
 
   async function send() {
     const text = els.input.value.trim();
-    if (!text || controller || !signedIn) return;
-    if (!await ensureSession()) return;
+    if (!text || controller || checkingSend || !signedIn) return;
+    checkingSend = true;
+    const allowed = await ensureSession();
+    checkingSend = false;
+    if (!allowed || controller || !signedIn || els.input.value.trim() !== text) return;
     const key = apiKey;
     if (!key) { renderKeyState(); els.key.focus(); return; }
 
@@ -269,4 +293,5 @@
   });
 
   renderKeyState();
+  ensureSession();
 })();

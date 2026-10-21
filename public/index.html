@@ -26,8 +26,9 @@
 <link rel="stylesheet" href="style.css">
 </head>
 <body>
-<header class="bar"><h1>Хаб</h1><div class="account"><span id="account-name"></span><button id="logout" type="button">Выйти</button></div></header>
+<header class="bar"><h1>Хаб</h1><div class="account" id="account" hidden><span id="account-name"></span><button id="logout" type="button" hidden>Выйти</button></div></header>
 <main>
+  <p id="session-status" class="session-status" role="status" aria-live="polite" hidden></p>
   <ul id="grid" class="grid"></ul>
 </main>
 <script src="hub.js"></script>
