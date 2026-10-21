@@ -8,5 +8,9 @@
   },
   "dependencies": {
     "@simplewebauthn/server": "14.0.3"
+  },
+  "devDependencies": {
+    "playwright": "1.56.1",
+    "wrangler": "4.151.3"
   }
 }
