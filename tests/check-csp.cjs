@@ -4,8 +4,12 @@
 const fs = require('fs');
 const path = require('path');
 
-const ROOT = path.resolve(__dirname, '..');
-const CSP = "default-src 'self'; connect-src https://api.anthropic.com; style-src 'self' 'unsafe-inline'";
+const ROOT = path.resolve(__dirname, '..', 'public'); // то, что реально раздаёт Worker
+const CSP_OK = [
+  "default-src 'self'; connect-src 'self' https://api.anthropic.com; style-src 'self' 'unsafe-inline'",
+  "default-src 'self'; connect-src 'self' https://api.anthropic.com; style-src 'self' 'unsafe-inline'; base-uri 'self'; form-action 'self'; frame-ancestors 'none'",
+  "default-src 'self'; connect-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; base-uri 'self'; form-action 'self'; frame-ancestors 'none'",
+];
 // apps/ обходим рекурсивно: приложение в подпапке не должно проскочить мимо проверки
 function walk(dir) {
   return fs.readdirSync(path.join(ROOT, dir), { withFileTypes: true }).flatMap((e) => {
@@ -13,7 +17,7 @@ function walk(dir) {
     return e.isDirectory() ? walk(rel) : [rel];
   });
 }
-const pages = ['index.html', ...walk('apps').filter((f) => f.endsWith('.html'))];
+const pages = ['index.html', 'login.html', ...walk('apps').filter((f) => f.endsWith('.html'))];
 const scripts = [...fs.readdirSync(ROOT).filter((f) => f.endsWith('.js')), ...walk('apps').filter((f) => f.endsWith('.js'))];
 
 let fails = 0;
@@ -23,7 +27,7 @@ for (const p of pages) {
   const html = fs.readFileSync(path.join(ROOT, p), 'utf8');
   const metas = [...html.matchAll(/<meta\s+http-equiv="Content-Security-Policy"\s+content="([^"]*)"/gi)];
   if (metas.length !== 1) fail(p, `CSP meta: ${metas.length} шт.`);
-  else if (metas[0][1] !== CSP) fail(p, `CSP отличается: ${metas[0][1]}`);
+  else if (!CSP_OK.includes(metas[0][1])) fail(p, `CSP отличается: ${metas[0][1]}`);
   const head = html.slice(0, html.search(/<\/head>/i));
   if (metas.length && head.indexOf(metas[0][0]) > head.search(/<script|<link/i)) fail(p, 'CSP meta должен стоять до script/link');
   for (const m of html.matchAll(/<script\b([^>]*)>([\s\S]*?)<\/script>/gi)) {

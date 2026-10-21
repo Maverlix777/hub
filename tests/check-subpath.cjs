@@ -15,6 +15,8 @@ const MIME = {
   '.png': 'image/png', '.svg': 'image/svg+xml', '.json': 'application/json', '.webmanifest': 'application/manifest+json',
 };
 
+// frame-ancestors в <meta> браузер игнорирует и пишет предупреждение: это не нарушение политики (заголовок ставит Worker)
+const FRAME_ANCESTORS_META = /'frame-ancestors' is ignored when delivered via a <meta>/;
 let passed = 0, failed = 0;
 function check(name, ok, extra) {
   if (ok) passed++; else failed++;
@@ -27,10 +29,18 @@ function jsonBlock(file, id) {
   return JSON.parse(m[1]);
 }
 
+let sessionOk = true; // login.js при живой сессии уводит на /hub/, поэтому для страницы входа мок переключается на «аноним»
 const server = http.createServer((req, res) => {
   const url = decodeURIComponent(req.url.split('?')[0]);
   if (!url.startsWith(PREFIX)) { res.writeHead(404); res.end('not found'); return; }
+  // мок Worker API: сессия есть, выход даёт 204
+  if (req.method === 'GET' && url === PREFIX + 'api/session') {
+    if (!sessionOk) { res.writeHead(401, { 'content-type': 'application/json' }); res.end('{"error":"unauthorized"}'); return; }
+    res.writeHead(200, { 'content-type': 'application/json' }); res.end('{"username":"test","entitlement":"free"}'); return;
+  }
+  if (req.method === 'POST' && url === PREFIX + 'api/logout') { res.writeHead(204); res.end(); return; }
   let rel = url.slice(PREFIX.length);
+  if (rel === 'login/') rel = 'login.html';
   if (rel === '' || rel.endsWith('/')) rel += 'index.html';
   const file = path.resolve(SITE_ROOT, rel);
   if (!file.startsWith(SITE_ROOT + path.sep) || !fs.existsSync(file) || !fs.statSync(file).isFile()) { res.writeHead(404); res.end('not found'); return; }
@@ -51,7 +61,7 @@ const server = http.createServer((req, res) => {
     const p = await ctx.newPage();
     const bad = [], csp = [], errs = [];
     p.on('response', (r) => { if (r.status() >= 400) bad.push(r.status() + ' ' + r.url()); });
-    p.on('console', (m) => { if (/Content Security Policy|Refused to/i.test(m.text())) csp.push(m.text().slice(0, 120)); });
+    p.on('console', (m) => { if (/Content Security Policy|Refused to/i.test(m.text()) && !FRAME_ANCESTORS_META.test(m.text())) csp.push(m.text().slice(0, 120)); });
     p.on('pageerror', (e) => errs.push(String(e)));
 
     await p.goto(BASE + PREFIX);
@@ -87,11 +97,31 @@ const server = http.createServer((req, res) => {
       }
       await p.click('#hub');
       await p.waitForSelector('a.tile');
-      check(`[${w}] «← Хаб» из «${a.title}» ведёт на ${PREFIX}index.html`, p.url() === BASE + PREFIX + 'index.html', p.url());
+      check(`[${w}] «← Хаб» из «${a.title}» ведёт на главную ${PREFIX}`, [BASE + PREFIX, BASE + PREFIX + 'index.html'].includes(p.url()), p.url());
     }
 
     check(`[${w}] нет ответов ≥400 при обходе`, bad.length === 0, bad.join(' ; '));
     check(`[${w}] нет CSP-нарушений и pageerror`, csp.length === 0 && errs.length === 0, csp.concat(errs).join(' ; '));
+    await ctx.close();
+  }
+
+  {
+    const ctx = await browser.newContext({ viewport: { width: 390, height: 844 } });
+    const p = await ctx.newPage();
+    const bad = [], csp = [], errs = [];
+    p.on('response', (r) => { if (r.status() >= 400) bad.push(r.status() + ' ' + r.url()); });
+    p.on('console', (m) => { if (/Content Security Policy|Refused to/i.test(m.text()) && !FRAME_ANCESTORS_META.test(m.text())) csp.push(m.text().slice(0, 120)); });
+    p.on('pageerror', (e) => errs.push(String(e)));
+    sessionOk = false;
+    await p.goto(BASE + PREFIX + 'login/');
+    await p.waitForLoadState('networkidle');
+    check(`login.html открылся под ${PREFIX}login/`, p.url() === BASE + PREFIX + 'login/' && (await p.title()) === 'Вход в Hub', p.url());
+    const styled = await p.evaluate(() => [...document.styleSheets].length >= 2);
+    check('login: стили подключены под /hub/', styled);
+    // единственный ожидаемый 401 — анонимная проверка сессии (мок), всё остальное не должно быть ≥400
+    check('login: нет ответов ≥400 (кроме 401 анонимной сессии)', bad.filter((x) => !/^401 .*\/hub\/api\/session$/.test(x)).length === 0, bad.join(' ; '));
+    sessionOk = true;
+    check('login: нет CSP-нарушений и pageerror', csp.length === 0 && errs.length === 0, csp.concat(errs).join(' ; '));
     await ctx.close();
   }
 

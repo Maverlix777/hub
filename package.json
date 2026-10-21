@@ -3,10 +3,20 @@
   "version": "0.1.0",
   "private": true,
   "type": "module",
+  "engines": {
+    "node": ">=22"
+  },
   "scripts": {
-    "test": "node --experimental-sqlite --test test/*.test.js"
+    "test": "node --experimental-sqlite --test test/*.test.js",
+    "dev": "wrangler dev --local --port 8787",
+    "db:migrate:local": "wrangler d1 migrations apply hub-auth --local",
+    "check": "node tests/check-csp.cjs && node tests/check-downloads.cjs && python3 tests/check-site-artifact.py && python3 tests/check-pages-redirect.py"
   },
   "dependencies": {
     "@simplewebauthn/server": "14.0.3"
+  },
+  "devDependencies": {
+    "playwright": "1.56.1",
+    "wrangler": "4.151.3"
   }
 }

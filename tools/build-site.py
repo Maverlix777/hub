@@ -7,19 +7,7 @@ import shutil
 from urllib.parse import urlsplit
 
 ROOT = Path(__file__).resolve().parents[1]
-FILES = (
-    "index.html",
-    "hub.js",
-    "style.css",
-    "manifest.webmanifest",
-    "apps/chat.html",
-    "apps/chat.js",
-    "apps/chat.css",
-    "apps/downloads.html",
-    "apps/downloads.js",
-    "apps/downloads.css",
-)
-DIRECTORIES = ("icons",)
+PUBLIC = ROOT / "public"  # the frontend actually served by the Cloudflare Worker
 # Static pages of other projects served from the Pages artifact next to the redirects.
 STATIC_PAGES = ("games/krenkballs/privacy.html",)
 
@@ -42,18 +30,17 @@ def main() -> None:
         build_redirects(output, args.redirect_to)
         print(f"Built legacy route redirects -> {output}")
         return
-    for rel in FILES:
-        src, dst = ROOT / rel, output / rel
+    if not (PUBLIC / "index.html").is_file():
+        raise SystemExit("required site file is missing: public/index.html")
+    count = 0
+    for src in sorted(PUBLIC.rglob("*")):
         if not src.is_file():
-            raise SystemExit(f"required site file is missing: {rel}")
+            continue
+        dst = output / src.relative_to(PUBLIC)
         dst.parent.mkdir(parents=True, exist_ok=True)
         shutil.copy2(src, dst)
-    for rel in DIRECTORIES:
-        src, dst = ROOT / rel, output / rel
-        if not src.is_dir():
-            raise SystemExit(f"required site directory is missing: {rel}")
-        shutil.copytree(src, dst)
-    print(f"Built public site: {len(FILES)} files + {len(DIRECTORIES)} asset directories -> {output}")
+        count += 1
+    print(f"Built public site: {count} files from public/ -> {output}")
 
 
 def build_redirects(output: Path, target: str) -> None:

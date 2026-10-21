@@ -1,10 +1,10 @@
-// Проверка реестра сборок: JSON-блок #manifest в apps/downloads.html.
+// Проверка реестра сборок: JSON-блок #manifest в public/apps/downloads.html.
 // Запуск: node tests/check-downloads.cjs
 'use strict';
 const fs = require('fs');
 const path = require('path');
 
-const file = path.resolve(__dirname, '..', 'apps', 'downloads.html');
+const file = path.resolve(__dirname, '..', 'public', 'apps', 'downloads.html');
 const html = fs.readFileSync(file, 'utf8');
 const m = html.match(/<script type="application\/json" id="manifest">([\s\S]*?)<\/script>/);
 const errors = [];
