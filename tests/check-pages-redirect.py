@@ -28,8 +28,12 @@ def main() -> None:
             Path("apps/downloads.html"): f"{TARGET}apps/downloads.html",
         }
         static = {Path("games/krenkballs/privacy.html")}
+        doktor = {Path("doktor") / name for name in (
+            "index.html", "privacy.html", "support.html", "terms.html", "style.css",
+            "blog/index.html", "blog/first-post.html", "downloads/index.html",
+        )}
         present = {path.relative_to(output) for path in output.rglob("*") if path.is_file()}
-        if present != set(expected) | static:
+        if present != set(expected) | static | doktor:
             raise SystemExit(f"redirect artifact contains unexpected files: {sorted(map(str, present))}")
         for rel, destination in expected.items():
             html = (output / rel).read_text(encoding="utf-8")
@@ -43,7 +47,10 @@ def main() -> None:
             html = (output / rel).read_text(encoding="utf-8")
             if "<script" in html.lower():
                 raise SystemExit(f"static page must not contain scripts: {rel}")
-        print("Pages migration redirects OK: root, chat, downloads, plus static Krenkballs privacy page")
+        for rel in doktor:
+            if (output / rel).read_bytes() != (ROOT / "public" / rel).read_bytes():
+                raise SystemExit(f"doktor page differs from source: {rel}")
+        print("Pages migration redirects OK: root, chat, downloads, plus static Krenkballs privacy page and /doktor/ pages")
 
 
 if __name__ == "__main__":

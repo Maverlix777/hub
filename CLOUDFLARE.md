@@ -31,3 +31,7 @@ Username enumeration: `register/options` answers 409 `registration_unavailable` 
 Session cookie scope: `__Host-hub_session` must use `Path=/` (a requirement of the `__Host-` prefix), so the browser sends it to every path on `kolobovdjp.org`, including Sites pages outside `/hub/`. The risk is accepted: Sites scripts cannot read an HttpOnly cookie. Revisit this if third-party code ever appears on the domain.
 
 Before considering the route ready, run `npm ci && npm test`, `wrangler deploy --dry-run`, apply the D1 migration, then perform an owner-approved registration, session, logout, and login smoke test on the deployed route. Do not use real account details in test evidence.
+
+## Doktor public pages
+
+`/doktor/*` is served publicly, without a session, from `public/doktor/` (GET/HEAD only; `/doktor` redirects to `/doktor/`, directories resolve to their `index.html`, `cache-control: public, max-age=300`, no cookie is read or set). To make this work on kolobovdjp.org the owner must add a zone route `kolobovdjp.org/doktor/*` to this Worker (currently only `/hub` and `/hub/*` exist). Until then the pages are available on GitHub Pages at `https://maverlix777.github.io/hub/doktor/`. The source of truth for the text is `site/doktor/` in the doktor repo; copy it byte for byte and never edit the pages here.

@@ -10,6 +10,8 @@ ROOT = Path(__file__).resolve().parents[1]
 PUBLIC = ROOT / "public"  # the frontend actually served by the Cloudflare Worker
 # Static pages of other projects served from the Pages artifact next to the redirects.
 STATIC_PAGES = ("games/krenkballs/privacy.html",)
+# Public Doktor pages (byte-for-byte copy of site/doktor in the doktor repo), served at /doktor/.
+DOKTOR_DIR = "public/doktor"
 
 
 def main() -> None:
@@ -82,6 +84,14 @@ def build_redirects(output: Path, target: str) -> None:
             raise SystemExit(f"required static page is missing: {rel}")
         dst.parent.mkdir(parents=True, exist_ok=True)
         shutil.copy2(src, dst)
+    copy_doktor(output)
+
+
+def copy_doktor(output: Path) -> None:
+    src = ROOT / DOKTOR_DIR
+    if not src.is_dir():
+        raise SystemExit(f"required site directory is missing: {DOKTOR_DIR}")
+    shutil.copytree(src, output / "doktor")
 
 
 if __name__ == "__main__":
