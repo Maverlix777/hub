@@ -34,7 +34,7 @@ Before considering the route ready, run `npm ci && npm test`, `wrangler deploy -
 
 ## Deploying from GitHub Actions
 
-`.github/workflows/deploy-worker.yml` is a manual (`workflow_dispatch`) production deploy. It needs the repository secrets `CLOUDFLARE_API_TOKEN` and `CLOUDFLARE_ACCOUNT_ID` and the repository variable `HUB_D1_DATABASE_ID` (the real `hub-auth` id); it generates the gitignored `wrangler.production.local.jsonc` on the runner from the template, applies migrations, deploys, and checks `referrer-policy` on the live `/hub/style.css`. Routes are left untouched unless the optional variable `HUB_WORKER_ROUTES` lists them (comma-separated, e.g. `kolobovdjp.org/hub,kolobovdjp.org/hub/*,kolobovdjp.org/doktor/*`). It deploys exactly what is in `main`: anything that exists only in the owner's local build is not part of it.
+`.github/workflows/deploy-worker.yml` is a manual (`workflow_dispatch`) production deploy. It needs the repository secrets `CLOUDFLARE_API_TOKEN` and `CLOUDFLARE_ACCOUNT_ID` and resolves the `hub-auth` D1 id with `wrangler d1 info` (or takes it from the optional variable `HUB_D1_DATABASE_ID`); it generates the gitignored `wrangler.production.local.jsonc` on the runner from the template, applies migrations, deploys, and checks `referrer-policy` on the live `/hub/style.css`. Routes are left untouched unless the `routes` run input or the optional variable `HUB_WORKER_ROUTES` lists them (comma-separated, e.g. `kolobovdjp.org/hub,kolobovdjp.org/hub/*,kolobovdjp.org/doktor/*`). It deploys exactly what is in `main`: anything that exists only in the owner's local build is not part of it.
 
 ## Doktor public pages
 

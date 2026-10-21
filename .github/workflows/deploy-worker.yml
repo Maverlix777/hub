@@ -5,11 +5,11 @@ name: Deploy Worker
 #
 # Required repository secrets (never read or printed by this workflow's steps):
 #   CLOUDFLARE_API_TOKEN, CLOUDFLARE_ACCOUNT_ID
-# Required repository variable (Settings → Secrets and variables → Actions → Variables):
-#   HUB_D1_DATABASE_ID   real id of the `hub-auth` D1 database
-# Optional repository variable:
+# Optional repository variables:
+#   HUB_D1_DATABASE_ID   id of the `hub-auth` D1 database; when unset it is looked up with `wrangler d1 info hub-auth`
 #   HUB_WORKER_ROUTES    comma-separated zone routes, e.g. "kolobovdjp.org/hub,kolobovdjp.org/hub/*,kolobovdjp.org/doktor/*".
-#                        When unset, existing routes are left untouched (wrangler only syncs routes present in config).
+#                        The `routes` run input overrides it. When both are empty, existing routes are left untouched
+#                        (wrangler only syncs routes present in config).
 #
 # The checked-in wrangler.jsonc stays a template with a placeholder D1 id; the
 # deployable config is generated into $RUNNER_TEMP and never committed.
@@ -21,6 +21,10 @@ on:
         description: Apply D1 migrations (hub-auth, remote) before deploying
         type: boolean
         default: true
+      routes:
+        description: Comma-separated zone routes to sync (empty = leave routes untouched)
+        type: string
+        default: ''
 
 permissions:
   contents: read
@@ -47,17 +51,28 @@ jobs:
         env:
           HAS_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN != '' }}
           HAS_ACCOUNT: ${{ secrets.CLOUDFLARE_ACCOUNT_ID != '' }}
-          HAS_D1: ${{ vars.HUB_D1_DATABASE_ID != '' }}
         run: |
           ok=1
           [ "$HAS_TOKEN" = "true" ] || { echo "::error::secret CLOUDFLARE_API_TOKEN is missing"; ok=0; }
           [ "$HAS_ACCOUNT" = "true" ] || { echo "::error::secret CLOUDFLARE_ACCOUNT_ID is missing"; ok=0; }
-          [ "$HAS_D1" = "true" ] || { echo "::error::repository variable HUB_D1_DATABASE_ID is missing"; ok=0; }
           [ "$ok" = 1 ]
+      - name: Resolve the hub-auth D1 database id
+        id: d1
+        env:
+          CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+          CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+          HUB_D1_DATABASE_ID: ${{ vars.HUB_D1_DATABASE_ID }}
+        run: |
+          if [ -z "$HUB_D1_DATABASE_ID" ]; then
+            HUB_D1_DATABASE_ID="$(npx wrangler d1 info hub-auth --json | python3 -c 'import json,sys; d=json.load(sys.stdin); print(d.get("uuid") or d.get("database_id") or d.get("id") or "")')"
+          fi
+          [ -n "$HUB_D1_DATABASE_ID" ] || { echo "::error::could not resolve the hub-auth D1 database id"; exit 1; }
+          echo "::add-mask::$HUB_D1_DATABASE_ID"
+          echo "id=$HUB_D1_DATABASE_ID" >> "$GITHUB_OUTPUT"
       - name: Generate the gitignored production config
         env:
-          HUB_D1_DATABASE_ID: ${{ vars.HUB_D1_DATABASE_ID }}
-          HUB_WORKER_ROUTES: ${{ vars.HUB_WORKER_ROUTES }}
+          HUB_D1_DATABASE_ID: ${{ steps.d1.outputs.id }}
+          HUB_WORKER_ROUTES: ${{ inputs.routes != '' && inputs.routes || vars.HUB_WORKER_ROUTES }}
           OUT: wrangler.production.local.jsonc
         run: |
           python3 - <<'PY'
