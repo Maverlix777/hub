@@ -20,6 +20,33 @@ const noStore = {
   'x-frame-options': 'DENY',
   'content-security-policy': "frame-ancestors 'none'",
 };
+const STATIC_CACHE_CONTROL = 'private, max-age=3600';
+const CACHEABLE_STATIC = /^\/hub\/(?:icons\/.+|style\.css|login\.css|manifest\.webmanifest|apps\/[^/]+\.css)$/;
+
+// Single exit point: every response (JSON, redirects, ASSETS) gets the same security headers.
+// Redirect/ASSETS responses may have immutable headers, so the response is always rebuilt.
+function finalize(response, request) {
+  const headers = new Headers(response.headers);
+  let cacheControl = 'no-store';
+  if (response.status === 200 && ['GET', 'HEAD'].includes(request.method) && !headers.has('set-cookie')
+    && CACHEABLE_STATIC.test(new URL(request.url).pathname)) cacheControl = STATIC_CACHE_CONTROL;
+  headers.set('cache-control', cacheControl);
+  headers.set('x-content-type-options', 'nosniff');
+  headers.set('referrer-policy', 'no-referrer');
+  headers.set('x-frame-options', 'DENY');
+  headers.set('content-security-policy', "frame-ancestors 'none'");
+  headers.set('permissions-policy', 'camera=(), microphone=(), geolocation=()');
+  return new Response(response.body, { status: response.status, statusText: response.statusText, headers });
+}
+
+function parseTransports(value) {
+  try {
+    const parsed = JSON.parse(value);
+    return Array.isArray(parsed) ? parsed : [];
+  } catch {
+    return [];
+  }
+}
 
 function rateLimitKeyReady(env) {
   return typeof env.RATE_LIMIT_HMAC_KEY === 'string' && env.RATE_LIMIT_HMAC_KEY.length >= 32;
@@ -175,7 +202,6 @@ async function applyRateLimit(db, env, request, scope, identifier, limit, now, t
   );
   const keyHash = base64url(await crypto.subtle.sign('HMAC', cryptoKey, new TextEncoder().encode(keyMaterial)));
   const windowStartedAt = Math.floor(now / RATE_WINDOW_MS) * RATE_WINDOW_MS;
-  await db.prepare('DELETE FROM rate_limits WHERE window_started_at < ?').bind(now - RATE_WINDOW_MS * 2).run();
   const result = await db.prepare(`
     INSERT INTO rate_limits (key_hash, window_started_at, count) VALUES (?, ?, 1)
     ON CONFLICT(key_hash) DO UPDATE SET
@@ -184,6 +210,28 @@ async function applyRateLimit(db, env, request, scope, identifier, limit, now, t
     RETURNING count
   `).bind(keyHash, windowStartedAt).first();
   return Number(result?.count || 0) <= limit;
+}
+
+// Housekeeping for expired rows; called only from the *_options endpoints, never for asset requests.
+// A failure here must not block authentication.
+async function pruneExpired(db, now) {
+  try {
+    await db.batch([
+      db.prepare('DELETE FROM challenges WHERE expires_at <= ?').bind(now),
+      db.prepare('DELETE FROM sessions WHERE expires_at <= ? OR revoked_at IS NOT NULL').bind(now),
+      db.prepare('DELETE FROM rate_limits WHERE window_started_at < ?').bind(now - RATE_WINDOW_MS * 2),
+    ]);
+  } catch {
+    // ignored: the next options request retries
+  }
+}
+
+async function authRateLimit(db, env, request, scope, identifier, limit, now, trustedClientIP) {
+  if (!rateLimitKeyReady(env)) return json({ error: 'auth_unavailable' }, 503);
+  if (!(trustedClientIP || request.headers.get('CF-Connecting-IP'))) return json({ error: 'service_unavailable' }, 503);
+  const underLimit = await applyRateLimit(db, env, request, scope, identifier, limit, now, trustedClientIP)
+    && await applyRateLimit(db, env, request, 'ip', 'auth', 20, now, trustedClientIP);
+  return underLimit ? null : json({ error: 'rate_limited' }, 429);
 }
 
 async function consumeChallenge(db, id, operation, userId, now) {
@@ -270,9 +318,9 @@ async function api(request, env, path, session, webauthn, now, trustedClientIP =
     const body = await readJson(request);
     const username = normalizeUsername(body?.username);
     if (!username) return json({ error: 'invalid_username' }, 400);
-    const underLimit = await applyRateLimit(db, env, request, 'register', username, 5, now, trustedClientIP)
-      && await applyRateLimit(db, env, request, 'ip', 'auth', 20, now, trustedClientIP);
-    if (!underLimit) return json({ error: rateLimitKeyReady(env) ? 'rate_limited' : 'auth_unavailable' }, rateLimitKeyReady(env) ? 429 : 503);
+    const limited = await authRateLimit(db, env, request, 'register', username, 5, now, trustedClientIP);
+    if (limited) return limited;
+    await pruneExpired(db, now);
     const exists = await db.prepare('SELECT id FROM users WHERE username = ?').bind(username).first();
     if (exists) return json({ error: 'registration_unavailable' }, 409);
     const userId = randomToken(24);
@@ -289,8 +337,6 @@ async function api(request, env, path, session, webauthn, now, trustedClientIP =
     });
     const challengeId = randomToken(24);
     await db.batch([
-      db.prepare('DELETE FROM challenges WHERE expires_at <= ?').bind(now),
-      db.prepare('DELETE FROM sessions WHERE expires_at <= ? OR revoked_at IS NOT NULL').bind(now),
       db.prepare('INSERT INTO challenges (id, user_id, operation, username, challenge, expires_at) VALUES (?, ?, ?, ?, ?, ?)')
         .bind(challengeId, userId, 'register', username, options.challenge, now + CHALLENGE_TTL_MS),
     ]);
@@ -342,9 +388,9 @@ async function api(request, env, path, session, webauthn, now, trustedClientIP =
     const body = await readJson(request);
     const username = normalizeUsername(body?.username);
     if (!username) return json({ error: 'login_unavailable' }, 401);
-    const underLimit = await applyRateLimit(db, env, request, 'login', username, 8, now, trustedClientIP)
-      && await applyRateLimit(db, env, request, 'ip', 'auth', 20, now, trustedClientIP);
-    if (!underLimit) return json({ error: rateLimitKeyReady(env) ? 'rate_limited' : 'auth_unavailable' }, rateLimitKeyReady(env) ? 429 : 503);
+    const limited = await authRateLimit(db, env, request, 'login', username, 8, now, trustedClientIP);
+    if (limited) return limited;
+    await pruneExpired(db, now);
     const user = await db.prepare('SELECT id FROM users WHERE username = ?').bind(username).first();
     if (!user) return json({ error: 'login_unavailable' }, 401);
     const credentials = await db.prepare('SELECT id, transports_json FROM credentials WHERE user_id = ?').bind(user.id).all();
@@ -352,13 +398,12 @@ async function api(request, env, path, session, webauthn, now, trustedClientIP =
     if (!rows.length) return json({ error: 'login_unavailable' }, 401);
     const options = await webauthn.generateAuthenticationOptions({
       rpID: env.RP_ID,
-      allowCredentials: rows.map((credential) => ({ id: credential.id, transports: JSON.parse(credential.transports_json) })),
+      allowCredentials: rows.map((credential) => ({ id: credential.id, transports: parseTransports(credential.transports_json) })),
       userVerification: 'required',
       timeout: CHALLENGE_TTL_MS,
     });
     const challengeId = randomToken(24);
     await db.batch([
-      db.prepare('DELETE FROM challenges WHERE expires_at <= ?').bind(now),
       db.prepare('INSERT INTO challenges (id, user_id, operation, username, challenge, expires_at) VALUES (?, ?, ?, ?, ?, ?)')
         .bind(challengeId, user.id, 'login', username, options.challenge, now + CHALLENGE_TTL_MS),
     ]);
@@ -386,7 +431,7 @@ async function api(request, env, path, session, webauthn, now, trustedClientIP =
           id: row.id,
           publicKey: fromBase64url(row.public_key),
           counter: Number(row.counter),
-          transports: JSON.parse(row.transports_json),
+          transports: parseTransports(row.transports_json),
         },
         requireUserVerification: true,
       });
@@ -415,7 +460,7 @@ async function api(request, env, path, session, webauthn, now, trustedClientIP =
 export function createWorker(webauthn = {
   generateRegistrationOptions, generateAuthenticationOptions, verifyRegistrationResponse, verifyAuthenticationResponse,
 }) {
-  return {
+  const core = {
     async fetch(request, env) {
       const now = Date.now();
       const canonicalOrigin = env.CANONICAL_ORIGIN || 'https://kolobovdjp.org';
@@ -474,6 +519,18 @@ export function createWorker(webauthn = {
       const assetPath = staticAssetPath(pathname);
       const response = await env.ASSETS.fetch(withPath(request, assetPath));
       return new Response(response.body, { status: response.status, headers: { ...Object.fromEntries(response.headers), ...noStore } });
+    },
+  };
+  return {
+    async fetch(request, env) {
+      let response;
+      try {
+        response = await core.fetch(request, env);
+      } catch {
+        // No exception text or stack in the response or logs.
+        response = json({ error: 'internal_error' }, 500);
+      }
+      return finalize(response, request);
     },
   };
 }
