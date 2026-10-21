@@ -32,6 +32,10 @@ Session cookie scope: `__Host-hub_session` must use `Path=/` (a requirement of t
 
 Before considering the route ready, run `npm ci && npm test`, `wrangler deploy --dry-run`, apply the D1 migration, then perform an owner-approved registration, session, logout, and login smoke test on the deployed route. Do not use real account details in test evidence.
 
+## Deploying from GitHub Actions
+
+`.github/workflows/deploy-worker.yml` is a manual (`workflow_dispatch`) production deploy. It needs the repository secrets `CLOUDFLARE_API_TOKEN` and `CLOUDFLARE_ACCOUNT_ID` and the repository variable `HUB_D1_DATABASE_ID` (the real `hub-auth` id); it generates the gitignored `wrangler.production.local.jsonc` on the runner from the template, applies migrations, deploys, and checks `referrer-policy` on the live `/hub/style.css`. Routes are left untouched unless the optional variable `HUB_WORKER_ROUTES` lists them (comma-separated, e.g. `kolobovdjp.org/hub,kolobovdjp.org/hub/*,kolobovdjp.org/doktor/*`). It deploys exactly what is in `main`: anything that exists only in the owner's local build is not part of it.
+
 ## Doktor public pages
 
 `/doktor/*` is served publicly, without a session, from `public/doktor/` (GET/HEAD only; `/doktor` redirects to `/doktor/`, directories resolve to their `index.html`, `cache-control: public, max-age=300`, no cookie is read or set). To make this work on kolobovdjp.org the owner must add a zone route `kolobovdjp.org/doktor/*` to this Worker (currently only `/hub` and `/hub/*` exist). Until then the pages are available on GitHub Pages at `https://maverlix777.github.io/hub/doktor/`. The source of truth for the text is `site/doktor/` in the doktor repo; copy it byte for byte and never edit the pages here.
