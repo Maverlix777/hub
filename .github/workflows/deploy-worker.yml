@@ -6,7 +6,7 @@ name: Deploy Worker
 # Required repository secrets (never read or printed by this workflow's steps):
 #   CLOUDFLARE_API_TOKEN, CLOUDFLARE_ACCOUNT_ID
 # Optional repository variables:
-#   HUB_D1_DATABASE_ID   id of the `hub-auth` D1 database; when unset it is looked up with `wrangler d1 info hub-auth`
+#   HUB_D1_DATABASE_ID   id of the `hub-auth` D1 database; when unset it is looked up by name with `wrangler d1 list`
 #   HUB_WORKER_ROUTES    comma-separated zone routes, e.g. "kolobovdjp.org/hub,kolobovdjp.org/hub/*,kolobovdjp.org/doktor/*".
 #                        The `routes` run input overrides it. When both are empty, existing routes are left untouched
 #                        (wrangler only syncs routes present in config).
@@ -63,8 +63,9 @@ jobs:
           CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
           HUB_D1_DATABASE_ID: ${{ vars.HUB_D1_DATABASE_ID }}
         run: |
+          npx wrangler whoami
           if [ -z "$HUB_D1_DATABASE_ID" ]; then
-            HUB_D1_DATABASE_ID="$(npx wrangler d1 info hub-auth --json | python3 -c 'import json,sys; d=json.load(sys.stdin); print(d.get("uuid") or d.get("database_id") or d.get("id") or "")')"
+            HUB_D1_DATABASE_ID="$(npx wrangler d1 list --json | python3 -c 'import json,sys; dbs=json.load(sys.stdin); print(next((d.get("uuid") or d.get("database_id") or "" for d in dbs if d.get("name")=="hub-auth"), ""))')"
           fi
           [ -n "$HUB_D1_DATABASE_ID" ] || { echo "::error::could not resolve the hub-auth D1 database id"; exit 1; }
           echo "::add-mask::$HUB_D1_DATABASE_ID"
