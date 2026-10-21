@@ -1,62 +1,30 @@
-<!doctype html>
-<html lang="ru"><head><meta charset="utf-8">
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
-<title>Политика конфиденциальности | Доктор</title>
-<meta name="description" content="Доктор: приложение для проверки машины через OBD-адаптер.">
-<meta name="robots" content="noindex">
-<link rel="stylesheet" href="style.css">
-</head><body>
-<header class="top"><div class="wrap">
-<a class="brand" href="index.html">Доктор</a>
-<nav aria-label="Основная навигация"><a href="index.html">О приложении</a><a href="blog/index.html">Блог</a><a href="support.html">Поддержка</a><a href="downloads/index.html">Загрузки</a></nav>
-</div></header>
-<main class="wrap">
-<h1>Политика конфиденциальности приложения «Доктор»</h1>
-<p class="draft">ЧЕРНОВИК, ждёт прочтения владельцем. Не юридическая консультация, показать юристу до публикации. Не публиковать до его «ок».</p>
-<p>Обновлено 2026-10-19. Юридические поля помечены <span class="ph">[placeholder]</span>. Платформы: iOS и Android; строки про Android помечены. Абзацы про режим «Свой ключ Claude» следуют спеку и плану, сверить после интеграции (помечено <span class="ph">[placeholder]</span>).</p>
-<p>Действует с: <span class="ph">[placeholder: дата]</span>. Оператор: KOLOBOVDJP LLC (юридическое лицо, штат регистрации: <span class="ph">[placeholder: уточнит владелец]</span>, США). Адрес: <span class="ph">[placeholder: юридический адрес KOLOBOVDJP LLC]</span>. Контакт: <span class="ph">[placeholder: email для запросов о данных]</span>. Статус «трейдер» по закону ЕС о цифровых услугах: <span class="ph">[placeholder: определяет владелец и юрист]</span>.</p>
-<h2>1. Коротко</h2>
-<p>Доктор читает данные машины через OBD-адаптер. Машины, VIN, поездки, журнал работ и записи обмена с адаптером хранятся на вашем телефоне. Входа и аккаунта в приложении нет. Вопросы Доктору обрабатываются в одном из двух режимов на ваш выбор. «Без сети» (iPhone, бета): языковая модель на самом телефоне, ничего не отправляется. «Свой ключ Claude»: вы вставляете собственный ключ, и после вашего согласия вопрос и данные машины без VIN уходят напрямую в Anthropic, не через наши серверы. На Android в первой версии режима «Без сети» нет <span class="ph">[placeholder: подтвердить после сборки Android]</span>. Платного ИИ в этой версии нет. В приложении есть реклама Google AdMob.</p>
-<h2>2. Что хранится на телефоне</h2>
-<ul>
-<li>Машины: марка, модель, год, двигатель, VIN, названия.</li>
-<li>Поездки, коды неисправностей, показания датчиков, журнал работ, профиль, настройки.</li>
-<li>Подробные записи обмена с адаптером в <code>Documents/Sessions</code>: хранятся последние 30 файлов; VIN в них без последних 6 знаков; серийный номер адаптера не пишется. Файлы исключены из резервной копии, но видны в приложении «Файлы».</li>
-<li>Общий объём журналов и поездок ограничен 200 МБ.</li>
-</ul>
-<p>Мы эти файлы на свои серверы не отправляем: серверного кода для этого в приложении нет. Вы сами решаете, поделиться ли ими.</p>
-<h2>3. Что уходит с телефона</h2>
-<ul>
-<li><b>NHTSA (США).</b> Приложение напрямую запрашивает открытую базу NHTSA: на <code>vpic.nhtsa.dot.gov</code> уходят первые 11 знаков VIN, на <code>api.nhtsa.gov</code> марка, модель, год. Остальные 6 знаков VIN в эти запросы не входят.</li>
-<li><b>Hugging Face.</b> Файл языковой модели (около 1 ГБ по описанию в коде) скачивается один раз по кнопке пользователя. Hugging Face видит обычные сетевые данные запроса, например IP. В режиме «Без сети» ваши вопросы и данные машины не отправляются никуда.</li>
-<li><b>Anthropic (США), только режим «Свой ключ Claude».</b> Режим включаете вы: вставляете собственный ключ Anthropic API и даёте согласие на отдельном экране, где названа компания Anthropic (США). После этого при каждом вопросе приложение напрямую, по HTTPS, шлёт на <code>api.anthropic.com</code> с вашим ключом: ваш вопрос, до трёх последних пар «вопрос и ответ» диалога и факты машины (название и мотор, вердикт, коды неисправностей двигателя, показания датчиков сеанса, последние пять записей журнала работ). VIN и серийный номер адаптера в запрос не входят (Swift-часть <span class="ph">[placeholder: ClaudeLink.swift, сверить после интеграции T1]</span>). Через наши серверы ничего не идёт: своего ИИ-сервера у Доктора в этой версии нет. Ключ хранится только на устройстве, в Keychain iOS (на Android, если режим там появится, в Android Keystore <span class="ph">[placeholder: Android, после T5]</span>); мы его не получаем и в страницу приложения он не попадает <span class="ph">[placeholder: сверить с кодом T1]</span>. Плату берёт Anthropic с вашего аккаунта. Правила Anthropic для API: вход и выход удаляются в течение 30 дней (до 2 лет при нарушении правил использования или по закону), по умолчанию не идут на обучение моделей (источники: <a href="https://privacy.claude.com/en/articles/7996866">https://privacy.claude.com/en/articles/7996866</a>, страница от 2026-07-01, и <a href="https://privacy.claude.com/en/articles/7996868">https://privacy.claude.com/en/articles/7996868</a>, от 2026-08-18; прочитаны 2026-10-19; условия задаёт Anthropic и они меняются <span class="ph">[юрист: сверить]</span>). Без вашего согласия и ключа ничего в Anthropic не уходит; режим «Без сети» и демо работают без согласия.</li>
-<li><b>Android: реклама Google.</b> Google Mobile Ads SDK сам собирает и передаёт Google IP-адрес (по нему может оцениваться примерное место), взаимодействия с рекламой, диагностику SDK и идентификаторы устройства, в том числе рекламный ID Android; всё шифруется при передаче по TLS (источник: <a href="https://developers.google.com/admob/android/privacy/play-data-disclosure">https://developers.google.com/admob/android/privacy/play-data-disclosure</a>, страница читалась 2026-10-18, версия SDK на странице 25.5.0). Рекламный ID можно сбросить или удалить в настройках Android. Сверка с отчётом SDK после сборки: <span class="ph">[placeholder: сверить при сборке Android]</span>.</li>
-<li><b>Реклама Google AdMob и согласие UMP.</b> Баннер показывается только вне живого подключения к машине и после согласия. Запросы идут на серверы Google через Google Mobile Ads SDK. По документации Google SDK может получать IP (оценка места), идентификаторы устройства, данные о показанной рекламе и нажатиях, производительность и сбои (источник: <a href="https://developers.google.com/admob/ios/privacy/data-disclosure">https://developers.google.com/admob/ios/privacy/data-disclosure</a>, прочитано 2026-10-18; с манифестом самого SDK не сверено).</li>
-<li><b>ATT (только iPhone).</b> После формы согласия iOS один раз спрашивает разрешение на отслеживание. При отказе SDK не получает рекламный идентификатор (IDFA).</li>
-</ul>
-<p>Подписок, покупок и платного ИИ в этой версии нет. Раздел про оплату добавить, когда появится платная функция.</p>
-<h2>4. Получатели</h2>
-<p>Google (реклама, форма согласия), NHTSA (США), Hugging Face (скачивание модели), Anthropic (США; только режим «Свой ключ Claude», после вашего согласия), <span class="ph">[placeholder: другие получатели, если появятся]</span>. Данные мы не продаём <span class="ph">[placeholder: юрист подтверждает формулировку]</span>. Отслеживание между приложениями возможно только через рекламу Google и только если вы разрешили его в ATT.</p>
-<h2>5. Чего нет в сторовой сборке</h2>
-<p>Нет микрофона и распознавания речи в сторовой сборке iPhone. В Android-сборке такой функции не планируется. Обновление страницы файлом в сторовой сборке отключено.</p>
-<h2>6. Управление и права</h2>
-<ul>
-<li>Согласие на рекламу: кнопка «Настройки приватности рекламы» появляется, когда Google её требует. ATT меняется в настройках iOS.</li>
-<li>Удаление: кнопка «Delete everything» сначала просит приложение стереть <code>Documents/Sessions</code>, <code>Documents/Trips</code> и <code>active-trip.json</code>, потом очищает хранилище страницы (профиль, машины, импортированные записи, журнал работ, настройки). Ключ Claude в Keychain, скачанную модель и согласие на Claude удаляют T1 и T3, режим ИИ после этого возвращается на «Без сети» <span class="ph">[placeholder: в этой ветке этого кода нет, сверить после интеграции]</span>. Файлы остаются видны в приложении «Файлы», пока не удалены.</li>
-<li>Данные, уже отправленные в Anthropic, мы не получаем и удалить не можем: они хранятся по правилам Anthropic (п. 3) <span class="ph">[юрист: подтвердить]</span>.</li>
-<li>Запросы о доступе, исправлении, удалении данных: <span class="ph">[placeholder: контакт, срок ответа]</span>. Какие законы применяются (США, ЕС и др.): <span class="ph">[placeholder: юрист]</span>.</li>
-</ul>
-<h2>7. Дети</h2>
-<p>Владелец выбрал для Google Play возрастной рейтинг 0+ по анкете IARC (ответы по фактам: нет насилия, нет пользовательского контента). Целевая аудитория и вопрос о детях: <span class="ph">[placeholder: целевая аудитория, решает владелец]</span>. В настройках рекламы приложение явно говорит Google, что не помечает аудиторию как детскую и как ниже возраста согласия; максимальный рейтинг контента рекламы «teen». Из этих флагов возраст аудитории не следует.</p>
-<h2>8. Безопасность</h2>
-<p>Адреса NHTSA заданы как <code>https://</code>. Запрос к Anthropic: <code>https://api.anthropic.com/v1/messages</code> <span class="ph">[placeholder: сверить с кодом T1]</span>. Для Hugging Face и рекламы протокол задают библиотеки: <span class="ph">[placeholder: не проверено]</span>.</p>
-<h2>9. Изменения</h2>
-<p><span class="ph">[placeholder: как сообщаем об изменениях]</span></p>
-<h2>10. Контакты</h2>
-<p>KOLOBOVDJP LLC. Адрес, email, сайт: <span class="ph">[placeholder: юр. лицо, адрес, email, сайт]</span></p>
-</main>
-<footer><div class="wrap">
-<a href="privacy.html">Конфиденциальность</a><a href="terms.html">Условия</a><a href="support.html">Поддержка</a>
-<p>Оператор: <span class="ph">[placeholder: юрлицо, решает владелец]</span>. Страница-черновик, не опубликована.</p>
-</div></footer>
-</body></html>
+<title>Privacy Policy: Doktor</title>
+<style>body{font-family:system-ui,sans-serif;max-width:42rem;margin:2rem auto;padding:0 1rem;line-height:1.5}</style>
+</head>
+<body>
+<h1>Privacy Policy: Doktor</h1>
+<p><em>Last updated: 2026-10-20</em></p>
+<p><strong>Operator:</strong> KOLOBOVDJP LLC. Contact: contact@kolobovdjp.org.</p>
+<h2>What the app does</h2>
+<p>Doktor is an OBD-II diagnostic app. It connects over Bluetooth Low Energy to an OBD adapter in your vehicle and shows diagnostic trouble codes and live readings.</p>
+<h2>Data that stays on your device</h2>
+<p>Diagnostic data read from your vehicle, trouble codes, readings and app settings stay on your device. We do not receive them. The app has no accounts and no sign-in, and it does not use your location.</p>
+<h2>Requests to NHTSA</h2>
+<p>To decode a VIN (vehicle identification number), the app can send the first 11 characters of the VIN to the public NHTSA vPIC decoder service (a U.S. government service). To show recalls and complaints, it can send the vehicle make, model and model year to the NHTSA API. These requests contain no name, email or account. NHTSA processes them under its own terms; connection details such as IP address are visible to that service.</p>
+<h2>Advertising</h2>
+<p>The Android version shows ads through Google AdMob. AdMob may use the device advertising ID and other device data under Google&rsquo;s own policies. Where required, a consent form is shown, and you can decline personalized ads. We do not receive this data and we do not sell personal data.</p>
+<h2>Data we collect ourselves</h2>
+<p>None.</p>
+<h2>Bluetooth</h2>
+<p>Bluetooth permission is used only to talk to your OBD adapter.</p>
+<h2>Children</h2>
+<p>The app is a vehicle tool and is not directed at children. We do not knowingly collect information from anyone.</p>
+<h2>Changes</h2>
+<p>Updates to this policy are published at this address with a new date.</p>
+</body>
+</html>
