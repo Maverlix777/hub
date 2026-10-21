@@ -277,7 +277,7 @@ function safePublicPath(url) {
   }
   if (/%(?:2e|2f|5c)/i.test(url.pathname) || pathname.includes('%')
     || pathname.includes('\\') || pathname.split('/').some((part) => part === '.' || part === '..')) return null;
-  if (!pathname.startsWith('/hub/')) return null;
+  if (!pathname.startsWith('/hub/') && !pathname.startsWith('/doktor/')) return null;
   return pathname;
 }
 
@@ -485,6 +485,7 @@ export function createWorker(webauthn = {
       let decodedPath;
       try { decodedPath = decodeURIComponent(url.pathname); } catch { return new Response('Bad request', { status: 400, headers: noStore }); }
       if (decodedPath === '/hub') return Response.redirect(`${canonicalOrigin}/hub/`, 308);
+      if (decodedPath === '/doktor') return Response.redirect(`${canonicalOrigin}/doktor/`, 308);
       if (decodedPath === '/хаб' || decodedPath === '/хаб/' || decodedPath.startsWith('/хаб/')) {
         const rest = decodedPath === '/хаб' || decodedPath === '/хаб/' ? '' : decodedPath.slice('/хаб/'.length);
         const segments = rest.split('/');
@@ -500,6 +501,16 @@ export function createWorker(webauthn = {
       let pathname;
       try { pathname = safePublicPath(url); } catch { pathname = null; }
       if (!pathname) return new Response('Bad request', { status: 400, headers: noStore });
+      if (pathname.startsWith('/doktor/')) {
+        // Public static pages: no session is read or set.
+        if (!['GET', 'HEAD'].includes(request.method)) return new Response('Method not allowed', { status: 405, headers: { ...noStore, allow: 'GET, HEAD' } });
+        const assetPath = pathname.endsWith('/') ? `${pathname}index.html` : pathname;
+        const response = await env.ASSETS.fetch(withPath(request, assetPath));
+        const headers = { ...Object.fromEntries(response.headers), ...noStore };
+        delete headers['set-cookie'];
+        if (response.status === 200) headers['cache-control'] = 'public, max-age=300';
+        return new Response(response.body, { status: response.status, headers });
+      }
       if (pathname.startsWith('/hub/api/') && request.method === 'POST' && !originAllowed(request, canonicalOrigin)) {
         return json({ error: 'forbidden_origin' }, 403);
       }
