@@ -27,12 +27,13 @@
   <details id="settings" class="settings">
     <summary>Настройки</summary>
     <div class="row">
-      <label for="key">API-ключ</label>
+      <label for="key">API-ключ Anthropic</label>
       <input id="key" type="password" autocomplete="off" spellcheck="false" placeholder="sk-ant-...">
-      <button type="button" id="saveKey">Сохранить</button>
+      <button type="button" id="saveKey">Сохранить во вкладке</button>
       <button type="button" id="forgetKey">Забыть ключ</button>
     </div>
-    <p id="keyState" class="hint"></p>
+    <p id="keyState" class="hint" role="status" aria-live="polite"></p>
+    <p class="hint">API-ключ хранится в sessionStorage этой вкладки, не в localStorage. Он доступен скриптам того же сайта. Переходы и перезагрузка сохраняют его; «Забыть» или выход удаляют. Браузер может восстановить вкладку.</p>
     <div class="row">
       <label for="model">Модель</label>
       <select id="model">
@@ -44,9 +45,10 @@
     <label for="system">Системный промпт</label>
     <textarea id="system" rows="3"></textarea>
   </details>
-  <ol id="log" class="log" aria-live="polite"></ol>
+  <p id="storage-status" class="hint" role="status" aria-live="polite" hidden></p>
+  <ol id="log" class="log"></ol>
   <div class="composer">
-    <textarea id="input" rows="2" placeholder="Сообщение (Ctrl/⌘+Enter — отправить)"></textarea>
+    <textarea id="input" rows="2" aria-label="Сообщение для Claude" placeholder="Сообщение (Ctrl/⌘+Enter — отправить)"></textarea>
     <button type="button" id="send" class="primary">Отправить</button>
     <button type="button" id="stop" hidden>Стоп</button>
   </div>

@@ -2,17 +2,24 @@
 (function () {
   const API_URL = 'https://api.anthropic.com/v1/messages';
   const MAX_TOKENS = 8192;
+  const TAB_KEY = 'hub.chat.key';
+  const MAX_HISTORY_MESSAGES = 100;
+  const MAX_MESSAGE_CHARS = 8000;
   const K = { model: 'hub.chat.model', system: 'hub.chat.system', history: 'hub.chat.history' };
   const $ = (id) => document.getElementById(id);
   const els = {
     key: $('key'), saveKey: $('saveKey'), forgetKey: $('forgetKey'), keyState: $('keyState'),
     model: $('model'), system: $('system'), log: $('log'), input: $('input'),
     send: $('send'), stop: $('stop'), clear: $('clear'), settings: $('settings'),
+    storageStatus: $('storage-status'),
   };
 
   const store = {
     get(k) { try { return localStorage.getItem(k); } catch { return null; } },
-    set(k, v) { try { localStorage.setItem(k, v); } catch { /* приватный режим */ } },
+    set(k, v) {
+      try { localStorage.setItem(k, v); return true; }
+      catch { storageFeedback('Не удалось сохранить данные: хранилище переполнено или недоступно. Текущая переписка остаётся в памяти страницы.'); return false; }
+    },
     del(k) { try { localStorage.removeItem(k); } catch { /* приватный режим */ } },
   };
 
@@ -22,9 +29,10 @@
   // чужая/битая запись в localStorage не должна ломать чат: оставляем только валидные реплики
   history = history.filter((m) => m && (m.role === 'user' || m.role === 'assistant') && typeof m.content === 'string');
   let pendingText = '';
-  if (history.length && history[history.length - 1].role === 'user') pendingText = history.pop().content; // страницу закрыли посреди ответа
   let controller = null;
   let apiKey = '';
+  let keyInTabStorage = false;
+  try { apiKey = sessionStorage.getItem(TAB_KEY) || ''; keyInTabStorage = !!apiKey; } catch { /* память страницы остаётся доступной */ }
   let signedIn = true;
   let checking = null;
   let checkingSend = false;
@@ -34,6 +42,8 @@
     if (controller) controller.abort();
     history = [];
     apiKey = '';
+    keyInTabStorage = false;
+    try { sessionStorage.removeItem(TAB_KEY); } catch { /* storage may be unavailable */ }
     try {
       for (const key of Object.keys(localStorage)) {
         if (key.startsWith('hub.chat.')) localStorage.removeItem(key);
@@ -84,10 +94,12 @@
     if (!document.hidden && signedIn) return ensureSession();
   });
 
-  // --- API key lives only in this page's memory ---
+  // --- API key uses this tab's sessionStorage, with in-memory fallback ---
   function renderKeyState() {
     const has = !!apiKey;
-    els.keyState.textContent = has ? 'Ключ хранится только пока открыта эта вкладка.' : 'Ключ не задан.';
+    els.keyState.textContent = has
+      ? (keyInTabStorage ? 'Ключ в sessionStorage этой вкладки: переходы и перезагрузка его сохраняют. «Забыть» и выход удаляют. Браузер может восстановить вкладку.' : 'sessionStorage недоступно: ключ только в памяти этой страницы; при переходе его нужно ввести снова.')
+      : 'Ключ не задан.';
     els.forgetKey.disabled = !has;
     if (!has) els.settings.open = true;
   }
@@ -95,11 +107,15 @@
     const v = els.key.value.trim();
     if (!v) return;
     apiKey = v;
+    keyInTabStorage = false;
+    try { sessionStorage.setItem(TAB_KEY, v); keyInTabStorage = true; } catch { /* honest in-memory fallback */ }
     els.key.value = '';
     renderKeyState();
   });
   els.forgetKey.addEventListener('click', () => {
     apiKey = '';
+    keyInTabStorage = false;
+    try { sessionStorage.removeItem(TAB_KEY); } catch { /* memory key is still cleared */ }
     els.key.value = '';
     renderKeyState();
   });
@@ -112,9 +128,15 @@
   els.system.addEventListener('input', () => store.set(K.system, els.system.value));
 
   // --- отрисовка: только textContent, разметку ответа не интерпретируем ---
-  function addMsg(role, text) {
+  let latestLive = null;
+  function addMsg(role, text, announce = true) {
     const li = document.createElement('li');
     li.className = 'msg ' + role;
+    if (announce) {
+      if (latestLive) latestLive.setAttribute('aria-live', 'off');
+      li.setAttribute('aria-live', 'polite');
+      latestLive = li;
+    }
     const body = document.createElement('span');
     body.className = 'body';
     body.textContent = text;
@@ -132,8 +154,26 @@
   function redact(text, key) {
     return key ? String(text).split(key).join('[ключ скрыт]') : String(text);
   }
-  function saveHistory() { store.set(K.history, JSON.stringify(history)); }
-  for (const m of history) addMsg(m.role, m.content);
+  function storageFeedback(text) {
+    els.storageStatus.textContent = text;
+    els.storageStatus.hidden = false;
+  }
+  function boundedHistory() {
+    const clipped = history.slice(-MAX_HISTORY_MESSAGES).map(message => ({
+      role: message.role, content: message.content.slice(0, MAX_MESSAGE_CHARS),
+    }));
+    const trimmed = history.length > MAX_HISTORY_MESSAGES || history.some(message => message.content.length > MAX_MESSAGE_CHARS);
+    if (trimmed) storageFeedback('Сохраняются последние 100 сообщений, до 8000 символов в каждом. Сохранённая история сокращена.');
+    return clipped;
+  }
+  function saveHistory() { store.set(K.history, JSON.stringify(boundedHistory())); }
+  const initialBounded = boundedHistory();
+  if (history.length > MAX_HISTORY_MESSAGES || history.some(message => message.content.length > MAX_MESSAGE_CHARS)) {
+    history = initialBounded;
+    store.set(K.history, JSON.stringify(history));
+  }
+  if (history.length && history[history.length - 1].role === 'user') pendingText = history.pop().content; // страницу закрыли посреди ответа
+  for (const m of history) addMsg(m.role, m.content, false);
   if (pendingText && !els.input.value) els.input.value = pendingText;
 
   els.clear.addEventListener('click', () => {
@@ -226,10 +266,21 @@
         referrerPolicy: 'no-referrer',
       });
       if (!res.ok) {
-        const errText = await res.text();
+        let errText = '';
+        try { errText = await res.text(); }
+        catch { if (res.status !== 401) throw new Error('response_body_unavailable'); }
         failed = true;
         li.className = 'msg error';
-        body.textContent = redact(`HTTP ${res.status}\n${errText}`, key);
+        if (res.status === 401) {
+          // A delayed failure for an older key must not forget a replacement.
+          if (apiKey === key) {
+            apiKey = '';
+            keyInTabStorage = false;
+            try { sessionStorage.removeItem(TAB_KEY); } catch { /* memory key is cleared */ }
+            renderKeyState();
+          }
+          body.textContent = redact(`HTTP 401\nAnthropic не принял API-ключ. Замените ключ в настройках и повторите отправку. Это не выход из учётной записи Hub.\n${errText}`, key);
+        } else body.textContent = redact(`HTTP ${res.status}\n${errText}`, key);
       } else {
         for await (const ev of readSSE(res.body)) {
           if (ev.event === 'error') {

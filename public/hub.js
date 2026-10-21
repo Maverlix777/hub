@@ -10,6 +10,7 @@
   let checking = null;
 
   function clearChatData() {
+    try { sessionStorage.removeItem('hub.chat.key'); } catch { /* storage may be unavailable */ }
     try {
       for (const key of Object.keys(localStorage)) {
         if (key.startsWith('hub.chat.')) localStorage.removeItem(key);
