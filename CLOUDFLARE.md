@@ -26,4 +26,8 @@ Root owns setting runtime `HUB_GATEWAY_ORIGIN`, the `HUB_GATEWAY_SECRET`, and en
 
 Users register with a lowercase username and a device passkey. There is no email or password registration. New accounts receive only the `free` entitlement; no purchase, payment, or paid feature flow is implemented. Recovery is not available yet, so a user who loses all passkeys cannot recover the account through this Worker.
 
+Username enumeration: `register/options` answers 409 `registration_unavailable` for a taken name, so names can be probed through that endpoint (rate-limited to 5 per name and 20 per IP per minute). The alternative, answering a taken name like a free one, would make the browser create a passkey on the device before the registration fails, which is worse for the user. The risk is accepted for a personal hub; revisit if registration is ever opened to a wider audience.
+
+Session cookie scope: `__Host-hub_session` must use `Path=/` (a requirement of the `__Host-` prefix), so the browser sends it to every path on `kolobovdjp.org`, including Sites pages outside `/hub/`. The risk is accepted: Sites scripts cannot read an HttpOnly cookie. Revisit this if third-party code ever appears on the domain.
+
 Before considering the route ready, run `npm ci && npm test`, `wrangler deploy --dry-run`, apply the D1 migration, then perform an owner-approved registration, session, logout, and login smoke test on the deployed route. Do not use real account details in test evidence.
