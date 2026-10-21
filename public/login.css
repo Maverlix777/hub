@@ -1,12 +1,12 @@
-.auth-card{box-sizing:border-box;max-width:560px;margin:8vh auto;padding:clamp(24px,6vw,48px);border:1px solid var(--line);background:var(--card,#fff);color:var(--fg,#20231f)}
+.auth-card{box-sizing:border-box;max-width:560px;margin:8vh auto;padding:clamp(24px,6vw,48px);border:1px solid var(--line);background:var(--card);color:var(--fg)}
 .auth-card h2{font-size:clamp(30px,6vw,44px);letter-spacing:-.045em;margin:12px 0 16px}
 .auth-card p{line-height:1.65}
 .auth-card form{display:grid;gap:12px;margin:28px 0 18px}
 .auth-card input{width:100%;box-sizing:border-box;padding:14px;border:1px solid var(--line);border-radius:3px;font:inherit}
 .field-hint{color:var(--muted);font-size:.9rem}
 .auth-actions{display:flex;flex-wrap:wrap;gap:12px;margin-top:8px}
-.auth-actions button{font:inherit;padding:12px 16px;border:1px solid #203d32;border-radius:3px;cursor:pointer}
-.auth-actions .primary{background:#203d32;color:#fff}
+.auth-actions button{font:inherit;padding:12px 16px;border:1px solid var(--line);border-radius:3px;cursor:pointer}
+.auth-actions .primary{background:var(--accent);color:var(--accent-fg)}
 .auth-actions button:disabled{opacity:.55;cursor:wait}
 #status{min-height:1.6em;font-weight:600}
 .account-details{margin:.7rem 0 1.1rem;text-align:left;color:var(--muted);font-size:.92rem}.account-details summary{cursor:pointer;color:var(--fg);font-weight:600}.account-details p{line-height:1.5}

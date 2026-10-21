@@ -55,6 +55,14 @@ jobs:
           HUB_SITE_ROOT: ${{ runner.temp }}/hub-public
           NODE_PATH: ${{ github.workspace }}/node_modules
         run: node tests/e2e.cjs
+      - name: Upload login theme screenshots
+        if: always()
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
+        with:
+          name: login-theme-screenshots
+          path: tests/shots/login-390-*.png
+          if-no-files-found: error
+          retention-days: 7
 
   deploy:
     if: github.event_name == 'push' && github.ref == 'refs/heads/main'

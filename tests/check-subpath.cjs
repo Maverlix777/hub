@@ -105,8 +105,8 @@ const server = http.createServer((req, res) => {
     await ctx.close();
   }
 
-  {
-    const ctx = await browser.newContext({ viewport: { width: 390, height: 844 } });
+  for (const colorScheme of ['light', 'dark']) {
+    const ctx = await browser.newContext({ viewport: { width: 390, height: 844 }, colorScheme });
     const p = await ctx.newPage();
     const bad = [], csp = [], errs = [];
     p.on('response', (r) => { if (r.status() >= 400) bad.push(r.status() + ' ' + r.url()); });
@@ -115,11 +115,37 @@ const server = http.createServer((req, res) => {
     sessionOk = false;
     await p.goto(BASE + PREFIX + 'login/');
     await p.waitForLoadState('networkidle');
-    check(`login.html открылся под ${PREFIX}login/`, p.url() === BASE + PREFIX + 'login/' && (await p.title()) === 'Вход в Hub', p.url());
+    check(`login.html открылся под ${PREFIX}login/`, p.url() === BASE + PREFIX + 'login/' && (await p.title()) === 'Вход в Хаб', p.url());
     const styled = await p.evaluate(() => [...document.styleSheets].length >= 2);
     check('login: стили подключены под /hub/', styled);
     // единственный ожидаемый 401 — анонимная проверка сессии (мок), всё остальное не должно быть ≥400
     check('login: нет ответов ≥400 (кроме 401 анонимной сессии)', bad.filter((x) => !/^401 .*\/hub\/api\/session$/.test(x)).length === 0, bad.join(' ; '));
+    const theme = await p.evaluate(() => {
+      const root = getComputedStyle(document.documentElement);
+      const rgb = (token) => {
+        const probe = document.createElement('span');
+        probe.style.color = root.getPropertyValue(token).trim();
+        document.body.append(probe);
+        const value = getComputedStyle(probe).color;
+        probe.remove();
+        return value;
+      };
+      const card = getComputedStyle(document.querySelector('.auth-card'));
+      const button = getComputedStyle(document.querySelector('.auth-actions .primary'));
+      const selected = [...document.querySelectorAll('meta[name="theme-color"]')].filter((m) => matchMedia(m.media).matches);
+      return { card: card.backgroundColor, cardExpected: rgb('--card'), fg: card.color, fgExpected: rgb('--fg'),
+        button: button.backgroundColor, buttonExpected: rgb('--accent'), buttonFg: button.color, buttonFgExpected: rgb('--accent-fg'),
+        theme: selected.map((m) => m.content), bg: root.getPropertyValue('--bg').trim(),
+        fits: document.documentElement.scrollWidth <= innerWidth };
+    });
+    check(`login ${colorScheme}: card использует тему`, theme.card === theme.cardExpected && theme.fg === theme.fgExpected, JSON.stringify(theme));
+    check(`login ${colorScheme}: button использует тему`, theme.button === theme.buttonExpected && theme.buttonFg === theme.buttonFgExpected, JSON.stringify(theme));
+    check(`login ${colorScheme}: нет горизонтального скролла`, theme.fits);
+    check(`login ${colorScheme}: выбран theme-color`, theme.theme.length === 1 && theme.theme[0] === theme.bg, JSON.stringify(theme.theme));
+    const loginTouch = await p.$eval('link[rel=apple-touch-icon]', (l) => l.href);
+    check(`login ${colorScheme}: apple-touch-icon 200`, (await ctx.request.get(loginTouch)).status() === 200, loginTouch);
+    fs.mkdirSync(path.join(__dirname, 'shots'), { recursive: true });
+    await p.screenshot({ path: path.join(__dirname, 'shots', `login-390-${colorScheme}.png`), fullPage: true });
     sessionOk = true;
     check('login: нет CSP-нарушений и pageerror', csp.length === 0 && errs.length === 0, csp.concat(errs).join(' ; '));
     await ctx.close();
