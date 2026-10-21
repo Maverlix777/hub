@@ -6,21 +6,24 @@
 <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
 <meta name="referrer" content="no-referrer">
 <meta name="color-scheme" content="light dark">
-<title>Вход в Hub</title>
+<meta name="theme-color" content="#f6f6f4" media="(prefers-color-scheme: light)">
+<meta name="theme-color" content="#141413" media="(prefers-color-scheme: dark)">
+<title>Вход в Хаб</title>
 <link rel="manifest" href="/hub/manifest.webmanifest">
+<link rel="apple-touch-icon" sizes="180x180" href="/hub/icons/icon-180.png">
 <link rel="icon" type="image/png" href="/hub/icons/icon-192.png">
 <link rel="stylesheet" href="/hub/style.css">
 <link rel="stylesheet" href="/hub/login.css">
 </head>
 <body>
-<header class="bar"><a class="btn" href="/">KOLOBOVDJP LLC</a><h1>Hub</h1></header>
+<header class="bar"><a class="btn" href="/">KOLOBOVDJP LLC</a><h1>Хаб</h1></header>
 <main class="auth-card">
   <p class="eyebrow">Бесплатная учётная запись</p>
   <h2>Вход по ключу доступа</h2>
   <p>Введите имя и используйте ключ доступа, созданный на устройстве. Это passkey — биометрия, PIN или защитный ключ; пароль и email не нужны.</p>
   <details class="account-details">
     <summary>Что хранится в учётной записи</summary>
-    <p>Hub хранит имя, открытый ключ passkey и хеш токена сессии в облачной базе. Закрытый ключ остаётся в устройстве или его менеджере ключей.</p>
+    <p>Хаб хранит имя, открытый ключ passkey и хеш токена сессии в облачной базе. Закрытый ключ остаётся в устройстве или его менеджере ключей.</p>
     <p>Пока нет восстановления через email или поддержку. Если потерять все ключи доступа, войти в эту учётную запись не получится.</p>
   </details>
   <form id="auth-form">
