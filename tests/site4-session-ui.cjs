@@ -19,7 +19,7 @@ class Element {
 const tick = () => new Promise(resolve => setImmediate(resolve));
 const session = (status = 200, body = {username: 'synthetic.user', entitlement: 'free'}) => ({status, ok: status >= 200 && status < 300, json: async () => body});
 function deferred() { let resolve; const promise = new Promise(r => { resolve = r; }); return {promise, resolve}; }
-function page(kind, fetcher) {
+function page(kind, fetcher, appList = []) {
   const elements = {};
   const get = id => elements[id] ||= new Element(id);
   const document = new Element('document');
@@ -29,7 +29,7 @@ function page(kind, fetcher) {
   const window = new Element('window');
   const redirects = [];
   window.location = {replace: url => redirects.push(url)};
-  get('apps').textContent = '[]';
+  get('apps').textContent = JSON.stringify(appList);
   get('model').value = 'test-model';
   get('logout').hidden = true;
   get('session-status').hidden = true;
@@ -173,4 +173,16 @@ test('typing during a pending send check retains the newer draft and makes no AP
   assert.equal(p.get('input').value, 'Newer unsent draft');
   assert.equal(p.calls.length, 2);
   assert.ok(p.calls.every(call => call.url === '/hub/api/session'));
+});
+
+
+test('hub hides internal tiles the session does not allow; external tiles stay', async () => {
+  const p = page('hub', async () => session(200, {username: 'synthetic.user', entitlement: 'free', apps: ['chat']}), [
+    {id: 'chat', title: 'Chat', status: 'ready', href: 'apps/chat.html'},
+    {id: 'downloads', title: 'Downloads', status: 'ready', href: 'apps/downloads.html'},
+    {id: 'ext', title: 'Ext', status: 'ready', href: 'https://example.invalid/'},
+  ]);
+  await tick();
+  const hidden = Object.fromEntries(p.get('grid').children.map(li => [li.children[0].dataset.id, li.hidden]));
+  assert.deepEqual(hidden, {chat: false, downloads: true, ext: false});
 });

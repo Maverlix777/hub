@@ -11,7 +11,7 @@
 - Прод `kolobovdjp.org/hub/` — ПРИВАТНАЯ сборка владельца, её в repo нет. `deploy-worker.yml` из `main` её затирает (так было 21.10, откатывали вручную): не запускать без «да» владельца на конкретный запуск.
 - Pages (`maverlix777.github.io/hub/`) отдают только редиректы на `kolobovdjp.org/hub/` + политику Krenkballs + `/doktor/`.
 - `/doktor/*` — побайтовая копия `site/doktor` из repo doktor, здесь не править.
-- Задачи идут как SITE-N (ветки `zhanna/SITE-*`); открытый вопрос владельцу — политика регистрации, `reports/2026-10-21-registration-policy.md`.
+- Задачи идут как SITE-N (ветки `zhanna/SITE-*`); политика регистрации — А (открытая + доступ по entitlement, решение владельца 23.10): матрица `APP_ACCESS` в `src/worker.js`; новое приложение в `public/apps/` без записи в матрице отдаёт 403.
 - Проверки: `npm ci && npm test` (Worker), `npm run check` (CSP, реестр, artifact, редиректы), браузерные — `tests/*.cjs` с `NODE_PATH`.
 
 ## Структура

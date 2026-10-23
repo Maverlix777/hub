@@ -34,6 +34,16 @@
     sessionStatus.hidden = false;
   }
 
+  // The server enforces access; this only hides own-app tiles the session tier cannot open.
+  const tileItems = new Map();
+  function hideDeniedTiles(allowed) {
+    for (const app of apps) {
+      if (!app.href || /^https?:/i.test(app.href) || allowed.includes(app.id)) continue;
+      const li = tileItems.get(app.id);
+      if (li) li.hidden = true;
+    }
+  }
+
   function checkSession() {
     if (ended) return Promise.resolve(false);
     if (checking) return checking;
@@ -46,6 +56,7 @@
         const session = await response.json();
         if (ended) return false;
         if (!session || typeof session.username !== 'string' || !session.username.trim()) throw new Error('invalid_session');
+        if (Array.isArray(session.apps)) hideDeniedTiles(session.apps);
         accountName.textContent = session.username;
         account.hidden = false;
         logout.hidden = false;
@@ -86,6 +97,7 @@
   try { localStorage.removeItem('hub.chat.key'); } catch { /* storage may be unavailable */ }
   for (const app of apps) {
     const li = document.createElement('li');
+    tileItems.set(app.id, li);
     const ready = app.status === 'ready' && app.href;
     const tile = document.createElement(ready ? 'a' : 'div');
     tile.className = 'tile' + (ready ? '' : ' soon');
