@@ -23,9 +23,11 @@ const noStore = {
 const STATIC_CACHE_CONTROL = 'private, max-age=3600';
 // Registration policy A (owner, 23.10.2026): anyone may register; the server decides app access by tier.
 // Every file under /hub/apps/<id>.* needs an entry here; an app missing from the matrix is denied.
+// External tiles listed here (location-fusion) are only hidden in the hub: their hosts are outside this Worker.
 const APP_ACCESS = Object.freeze({
   chat: Object.freeze(['free', 'paid']),
   downloads: Object.freeze(['free', 'paid']),
+  'location-fusion': Object.freeze(['paid']),
 });
 
 function appAllowed(appId, tier) {
@@ -34,6 +36,10 @@ function appAllowed(appId, tier) {
 
 function allowedApps(tier) {
   return Object.keys(APP_ACCESS).filter((id) => appAllowed(id, tier));
+}
+
+function lockedApps(tier) {
+  return Object.keys(APP_ACCESS).filter((id) => !appAllowed(id, tier));
 }
 
 // '/apps/chat.js' -> 'chat'; null for paths outside /apps/; '' for anything else under /apps/ (denied).
@@ -340,7 +346,7 @@ async function api(request, env, path, session, webauthn, now, canonicalOrigin, 
   const db = env.HUB_DB;
   if (request.method === 'GET' && path === '/hub/api/session') {
     return session
-      ? json({ username: session.username, entitlement: session.tier, apps: allowedApps(session.tier) })
+      ? json({ username: session.username, entitlement: session.tier, apps: allowedApps(session.tier), locked: lockedApps(session.tier) })
       : json({ error: 'unauthorized' }, 401);
   }
   // Origin of POST requests is already checked once in fetch().

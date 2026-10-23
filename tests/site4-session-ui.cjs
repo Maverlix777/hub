@@ -176,13 +176,24 @@ test('typing during a pending send check retains the newer draft and makes no AP
 });
 
 
-test('hub hides internal tiles the session does not allow; external tiles stay', async () => {
-  const p = page('hub', async () => session(200, {username: 'synthetic.user', entitlement: 'free', apps: ['chat']}), [
+test('hub hides internal tiles the session does not allow and locked external tiles; other external tiles stay', async () => {
+  const p = page('hub', async () => session(200, {username: 'synthetic.user', entitlement: 'free', apps: ['chat'], locked: ['paid-ext']}), [
     {id: 'chat', title: 'Chat', status: 'ready', href: 'apps/chat.html'},
     {id: 'downloads', title: 'Downloads', status: 'ready', href: 'apps/downloads.html'},
     {id: 'ext', title: 'Ext', status: 'ready', href: 'https://example.invalid/'},
+    {id: 'paid-ext', title: 'Paid ext', status: 'ready', href: 'https://paid.example.invalid/'},
   ]);
   await tick();
   const hidden = Object.fromEntries(p.get('grid').children.map(li => [li.children[0].dataset.id, li.hidden]));
-  assert.deepEqual(hidden, {chat: false, downloads: true, ext: false});
+  assert.deepEqual(hidden, {chat: false, downloads: true, ext: false, 'paid-ext': true});
+});
+
+test('hub shows a locked-for-free external tile to a paid session', async () => {
+  const p = page('hub', async () => session(200, {username: 'synthetic.user', entitlement: 'paid', apps: ['chat', 'paid-ext'], locked: []}), [
+    {id: 'chat', title: 'Chat', status: 'ready', href: 'apps/chat.html'},
+    {id: 'paid-ext', title: 'Paid ext', status: 'ready', href: 'https://paid.example.invalid/'},
+  ]);
+  await tick();
+  const hidden = Object.fromEntries(p.get('grid').children.map(li => [li.children[0].dataset.id, li.hidden]));
+  assert.deepEqual(hidden, {chat: false, 'paid-ext': false});
 });

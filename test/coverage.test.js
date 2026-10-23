@@ -564,10 +564,21 @@ test('headers: early exits (foreign host 404, missing bindings 503, thrown excep
 test('access: a free session opens the apps in the matrix and gets them listed in /hub/api/session', async () => {
   const user = await register(nextName('access'), '192.0.2.190');
   const session = await send(req('/hub/api/session', { cookie: user.cookie }));
-  assert.deepEqual((await session.json()).apps, ['chat', 'downloads']);
+  const body = await session.json();
+  assert.deepEqual(body.apps, ['chat', 'downloads']);
+  assert.deepEqual(body.locked, ['location-fusion']);
   for (const path of ['/hub/apps/chat.html', '/hub/apps/chat.js', '/hub/apps/downloads.html', '/hub/apps/downloads.css']) {
     assert.equal((await send(req(path, { cookie: user.cookie }))).status, 200, path);
   }
+});
+
+test('access: a paid session also gets Location Fusion and nothing locked', async () => {
+  const user = await register(nextName('access'), '192.0.2.192');
+  sqlite.prepare("UPDATE entitlements SET tier = 'paid' WHERE user_id = ?").run(user.id);
+  const body = await (await send(req('/hub/api/session', { cookie: user.cookie }))).json();
+  assert.equal(body.entitlement, 'paid');
+  assert.deepEqual(body.apps, ['chat', 'downloads', 'location-fusion']);
+  assert.deepEqual(body.locked, []);
 });
 
 test('access: an app missing from the matrix and odd paths under /hub/apps/ are 403 for a valid session', async () => {
