@@ -566,7 +566,7 @@ test('access: a free session opens the apps in the matrix and gets them listed i
   const session = await send(req('/hub/api/session', { cookie: user.cookie }));
   const body = await session.json();
   assert.deepEqual(body.apps, ['chat', 'downloads']);
-  assert.deepEqual(body.locked, ['location-fusion']);
+  assert.deepEqual(body.locked, ['location-fusion', 'job-forge']);
   for (const path of ['/hub/apps/chat.html', '/hub/apps/chat.js', '/hub/apps/downloads.html', '/hub/apps/downloads.css']) {
     assert.equal((await send(req(path, { cookie: user.cookie }))).status, 200, path);
   }
@@ -577,8 +577,16 @@ test('access: a paid session also gets Location Fusion and nothing locked', asyn
   sqlite.prepare("UPDATE entitlements SET tier = 'paid' WHERE user_id = ?").run(user.id);
   const body = await (await send(req('/hub/api/session', { cookie: user.cookie }))).json();
   assert.equal(body.entitlement, 'paid');
-  assert.deepEqual(body.apps, ['chat', 'downloads', 'location-fusion']);
+  assert.deepEqual(body.apps, ['chat', 'downloads', 'location-fusion', 'job-forge']);
   assert.deepEqual(body.locked, []);
+});
+
+test('access: a paid-only app under /hub/apps/ is 403 for a free session', async () => {
+  const user = await register(nextName('access'), '192.0.2.193');
+  const before = assetRequests.length;
+  const response = await send(req('/hub/apps/job-forge.html', { cookie: user.cookie }));
+  assert.equal(response.status, 403);
+  assert.equal(assetRequests.length, before);
 });
 
 test('access: an app missing from the matrix and odd paths under /hub/apps/ are 403 for a valid session', async () => {
