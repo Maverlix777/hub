@@ -4,7 +4,15 @@
 
 ## Что за проект
 Личный лаунчер приложений владельца: одна страница с плитками, мобильная в первую очередь, тема по системе.
-Без бэкенда, без сборки, без зависимостей и сторонних скриптов: чистые HTML, CSS, JS. Repo `maverlix777/hub`.
+Фронтенд: чистые HTML, CSS, JS без сборки и сторонних скриптов. С #5/#6 рядом Cloudflare Worker (`src/worker.js`, вход по passkey, D1) — см. `CLOUDFLARE.md`, `README.md`. Repo `maverlix777/hub`.
+
+## Актуально на 23.10.2026 (`main` = `804df43`)
+- Источник фронтенда — `public/` (его раздаёт Worker, его читают тесты и `tools/build-site.py`). Корневые `index.html`, `hub.js`, `style.css`, `apps/` — старые копии, тестами не покрыты; правки вносить в `public/`.
+- Прод `kolobovdjp.org/hub/` — ПРИВАТНАЯ сборка владельца, её в repo нет. `deploy-worker.yml` из `main` её затирает (так было 21.10, откатывали вручную): не запускать без «да» владельца на конкретный запуск.
+- Pages (`maverlix777.github.io/hub/`) отдают только редиректы на `kolobovdjp.org/hub/` + политику Krenkballs + `/doktor/`.
+- `/doktor/*` — побайтовая копия `site/doktor` из repo doktor, здесь не править.
+- Задачи идут как SITE-N (ветки `zhanna/SITE-*`); открытый вопрос владельцу — политика регистрации, `reports/2026-10-21-registration-policy.md`.
+- Проверки: `npm ci && npm test` (Worker), `npm run check` (CSP, реестр, artifact, редиректы), браузерные — `tests/*.cjs` с `NODE_PATH`.
 
 ## Структура
 - `index.html` — хаб. Массив APPS — JSON-блок `<script type="application/json" id="apps">` в начале файла
@@ -51,7 +59,7 @@ content-type: application/json, anthropic-dangerous-direct-browser-access: true 
 - Ключ: только localStorage браузера. Не в коде, URL, логах, консоли, тексте ошибок, git.
 - Ответ модели — только textContent (или безопасный markdown без innerHTML с непроверенным текстом).
 - Пуш, публикация, хостинг — только после «да» владельца.
-- Хостинг: GitHub Pages из проверенного artifact workflow, сайт `https://maverlix777.github.io/hub/`. Перед переключением с legacy Pages на Actions владелец должен выбрать GitHub Actions в Repository Settings → Pages → Source.
+- Хостинг: приложение — Worker на `https://kolobovdjp.org/hub/` (приватная сборка, см. «Актуально»); GitHub Pages из artifact workflow отдаёт только редиректы и статические страницы.
   Artifact allowlist содержит только приложение; координационные документы и тесты в Pages не включать. Сам GitHub repository публичный, поэтому не хранить секреты или private credentials в любом коммите.
 - `maverlix777.github.io` — один origin на все project-сайты аккаунта: localStorage (ключ) виден их скриптам.
   Не включать Pages в других repo аккаунта без своего домена (у mukha-v-storonu CNAME есть, он отдельный).
