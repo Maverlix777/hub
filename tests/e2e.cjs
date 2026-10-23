@@ -11,7 +11,7 @@ const path = require('path');
 const { execFileSync } = require('child_process');
 
 const ROOT = path.resolve(__dirname, '..');
-const WEB_ROOT = process.env.HUB_SITE_ROOT ? path.resolve(process.env.HUB_SITE_ROOT) : ROOT;
+const WEB_ROOT = process.env.HUB_SITE_ROOT ? path.resolve(process.env.HUB_SITE_ROOT) : path.join(ROOT, 'public');
 const PORT = 8765;
 const PREFIX = '/hub/';
 const ORIGIN = `http://127.0.0.1:${PORT}`;

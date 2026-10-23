@@ -1,11 +1,11 @@
-# Генерирует значки PWA: icons/icon-{180,192,512}.png. Фон непрозрачный на весь квадрат,
+# Генерирует значки PWA: public/icons/icon-{180,192,512}.png. Фон непрозрачный на весь квадрат,
 # рисунок (сетка 2x2 плиток) внутри безопасной зоны maskable (центральные 60%).
 # Запуск: python3 tools/make-icons.py  (нужен Pillow)
 from pathlib import Path
 from PIL import Image, ImageDraw
 
 BG, FG, DIM = (47, 91, 211), (255, 255, 255), (255, 255, 255, 110)
-OUT = Path(__file__).resolve().parent.parent / "icons"
+OUT = Path(__file__).resolve().parent.parent / "public" / "icons"
 
 def icon(size):
     s = 4  # рисуем крупнее и уменьшаем: сглаживание краёв
@@ -25,4 +25,4 @@ def icon(size):
 OUT.mkdir(exist_ok=True)
 for size in (180, 192, 512):
     icon(size).save(OUT / f"icon-{size}.png", optimize=True)
-    print(f"icons/icon-{size}.png")
+    print(f"public/icons/icon-{size}.png")
