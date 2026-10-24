@@ -6,6 +6,9 @@
   "compatibility_flags": ["nodejs_compat"],
   "workers_dev": false,
   "preview_urls": false,
+  "routes": [
+    { "pattern": "hub.kolobovdjp.org", "custom_domain": true }
+  ],
   "assets": {
     "directory": "./public",
     "binding": "ASSETS",
@@ -21,8 +24,10 @@
     }
   ],
   "vars": {
-    "CANONICAL_ORIGIN": "https://kolobovdjp.org",
+    "CANONICAL_ORIGIN": "https://hub.kolobovdjp.org",
+    "LEGACY_ORIGIN": "https://kolobovdjp.org",
     "RP_ID": "kolobovdjp.org",
-    "RP_NAME": "KOLOBOVDJP Hub"
+    "RP_NAME": "KOLOBOVDJP Hub",
+    "BOARD_OWNER_USERNAME": "maverlix,maverlixwin"
   }
 }

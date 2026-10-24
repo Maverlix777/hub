@@ -123,3 +123,11 @@ test('board page assets: owner only; session lists board only for owner', async 
   assert.ok((await (await get('/hub/api/session', owner)).json()).apps.includes('board'));
   assert.ok(!(await (await get('/hub/api/session', guest)).json()).apps.includes('board'));
 });
+
+test('board owner var accepts a comma-separated list', async () => {
+  const multi = { ...env, BOARD_OWNER_USERNAME: ' other , BOSS ' };
+  const r = await worker.fetch(new Request(`${origin}/hub/api/board`, { headers: { cookie: owner.cookie } }), multi);
+  assert.notEqual(r.status, 403);
+  const g = await worker.fetch(new Request(`${origin}/hub/api/board`, { headers: { cookie: guest.cookie } }), multi);
+  assert.equal(g.status, 403);
+});

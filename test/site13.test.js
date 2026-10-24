@@ -41,10 +41,11 @@ const env = {
   RP_NAME: 'Hub Test',
   RATE_LIMIT_HMAC_KEY: 'test-only-secret-not-logged-test-only',
 };
+const globalEnv = env;
 after(() => sqlite.close());
 
-function post(path, body, { ip = '192.0.2.50', headers = {} } = {}) {
-  return new Request(`${origin}${path}`, {
+function post(path, body, { ip = '192.0.2.50', headers = {} } = {}, base = origin) {
+  return new Request(`${base}${path}`, {
     method: 'POST',
     headers: { 'content-type': 'application/json', origin, 'CF-Connecting-IP': ip, ...headers },
     body: JSON.stringify(body),
@@ -53,9 +54,26 @@ function post(path, body, { ip = '192.0.2.50', headers = {} } = {}) {
 
 test('site13: without env.CANONICAL_ORIGIN the default origin passes the Origin check', async () => {
   const { CANONICAL_ORIGIN, ...bare } = env;
-  const response = await worker.fetch(post('/hub/api/login/options', { username: 'nobody.here' }, { ip: '192.0.2.52' }), bare);
+  const hubOrigin = 'https://hub.kolobovdjp.org';
+  const response = await worker.fetch(post('/hub/api/login/options', { username: 'nobody.here' },
+    { ip: '192.0.2.52', headers: { origin: hubOrigin } }, hubOrigin), bare);
   assert.notEqual(response.status, 403);
   assert.equal(response.status, 401);
+});
+
+test('legacy host: /hub/* is 301 to the hub host, POST is 308, /doktor/ still served', async () => {
+  const hub = 'https://hub.kolobovdjp.org';
+  const env = { ...globalEnv, CANONICAL_ORIGIN: hub, LEGACY_ORIGIN: origin };
+  const get = await worker.fetch(new Request(`${origin}/hub/login?x=1`), env);
+  assert.equal(get.status, 301);
+  assert.equal(get.headers.get('location'), `${hub}/hub/login?x=1`);
+  const bare = await worker.fetch(new Request(`${origin}/hub`), env);
+  assert.equal(bare.status, 301);
+  assert.equal(bare.headers.get('location'), `${hub}/hub`);
+  const postRes = await worker.fetch(new Request(`${origin}/hub/api/logout`, { method: 'POST' }), env);
+  assert.equal(postRes.status, 308);
+  const doktor = await worker.fetch(new Request(`${origin}/doktor/`), env);
+  assert.equal(doktor.status, 200);
 });
 
 test('site13: POST with a foreign Origin is 403 forbidden_origin', async () => {

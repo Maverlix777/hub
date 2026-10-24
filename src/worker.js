@@ -34,10 +34,12 @@ const APP_ACCESS = Object.freeze({
 });
 
 // Board dashboard: owner only. Not an entitlement tier (open registration hands out 'free' to anyone);
-// access needs the session username to equal env.BOARD_OWNER_USERNAME. Unset means nobody.
+// access needs the session username to be in env.BOARD_OWNER_USERNAME (comma-separated list). Unset means nobody.
 function isBoardOwner(session, env) {
-  const owner = typeof env.BOARD_OWNER_USERNAME === 'string' ? env.BOARD_OWNER_USERNAME.trim().toLowerCase() : '';
-  return Boolean(session && owner && session.username.toLowerCase() === owner);
+  const owners = typeof env.BOARD_OWNER_USERNAME === 'string'
+    ? env.BOARD_OWNER_USERNAME.split(',').map((u) => u.trim().toLowerCase()).filter(Boolean)
+    : [];
+  return Boolean(session && owners.includes(session.username.toLowerCase()));
 }
 
 const BOARD_REPO = /^[A-Za-z0-9_.-]+\/[A-Za-z0-9_.-]+$/;
@@ -548,10 +550,18 @@ export function createWorker(webauthn = {
   const core = {
     async fetch(request, env) {
       const now = Date.now();
-      const canonicalOrigin = env.CANONICAL_ORIGIN || 'https://kolobovdjp.org';
+      const canonicalOrigin = env.CANONICAL_ORIGIN || 'https://hub.kolobovdjp.org';
       const receivedUrl = new URL(request.url);
       let trustedClientIP = null;
-      if (receivedUrl.origin === canonicalOrigin) {
+      const legacyOrigin = env.LEGACY_ORIGIN || 'https://kolobovdjp.org';
+      if (receivedUrl.origin === legacyOrigin && legacyOrigin !== canonicalOrigin
+        && (receivedUrl.pathname === '/hub' || receivedUrl.pathname.startsWith('/hub/'))) {
+        // Old address: send every /hub/* request to the hub host (the RP ID stays the parent domain).
+        const target = new URL(receivedUrl.pathname + receivedUrl.search, canonicalOrigin);
+        return Response.redirect(target.toString(), ['GET', 'HEAD'].includes(request.method) ? 301 : 308);
+      }
+      if (receivedUrl.origin === canonicalOrigin || receivedUrl.origin === legacyOrigin) {
+        // /doktor/* stays reachable on the old host too; it is public and reads no cookie.
         request = stripGatewayHeaders(request);
       } else {
         if (!isExactOrigin(env.HUB_GATEWAY_ORIGIN) || receivedUrl.origin !== env.HUB_GATEWAY_ORIGIN) {
