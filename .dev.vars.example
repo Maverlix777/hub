@@ -15,3 +15,8 @@ RP_ID=127.0.0.1
 # Не нужны при локальном запуске (только за прод-шлюзом); оставьте пустыми.
 HUB_GATEWAY_ORIGIN=
 HUB_GATEWAY_SECRET=
+
+# Дашборд задач (/hub/apps/board.html): только владелец. Без обоих значений доступа нет.
+# BOARD_OWNER_USERNAME: имя пользователя хаба владельца. BOARD_GITHUB_TOKEN: fine-grained токен, read-only Contents на agent-handoffs (секрет Worker, не в Git).
+BOARD_OWNER_USERNAME=
+BOARD_GITHUB_TOKEN=

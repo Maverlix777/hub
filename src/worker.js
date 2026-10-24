@@ -1,4 +1,5 @@
 import { Buffer } from 'node:buffer';
+import { buildBoard } from './board.js';
 import {
   generateAuthenticationOptions,
   generateRegistrationOptions,
@@ -31,6 +32,40 @@ const APP_ACCESS = Object.freeze({
   // Job Forge: only a plan so far (agent-handoffs, 20.10.2026); reserved paid-only before its files land in public/apps/.
   'job-forge': Object.freeze(['paid']),
 });
+
+// Board dashboard: owner only. Not an entitlement tier (open registration hands out 'free' to anyone);
+// access needs the session username to equal env.BOARD_OWNER_USERNAME. Unset means nobody.
+function isBoardOwner(session, env) {
+  const owner = typeof env.BOARD_OWNER_USERNAME === 'string' ? env.BOARD_OWNER_USERNAME.trim().toLowerCase() : '';
+  return Boolean(session && owner && session.username.toLowerCase() === owner);
+}
+
+const BOARD_REPO = /^[A-Za-z0-9_.-]+\/[A-Za-z0-9_.-]+$/;
+const BOARD_PATH = /^[A-Za-z0-9_./-]+\.md$/;
+const BOARD_DEFAULT_PATHS = 'proposals/ai-factory-jobforge/BOARD.md,proposals/site-kolobovdjp/BOARD.md';
+
+// Reads the private board files at request time; nothing is stored here. Token never leaves the Worker.
+async function loadBoard(env, fetchImpl = fetch) {
+  const repo = env.BOARD_REPO || 'Maverlix777/agent-handoffs';
+  const paths = (env.BOARD_PATHS || BOARD_DEFAULT_PATHS).split(',').map((p) => p.trim()).filter(Boolean);
+  if (!env.BOARD_GITHUB_TOKEN || !BOARD_REPO.test(repo) || !paths.length || !paths.every((p) => BOARD_PATH.test(p) && !p.includes('..'))) {
+    return { error: 'board_unavailable' };
+  }
+  const sources = [];
+  for (const path of paths) {
+    const response = await fetchImpl(`https://api.github.com/repos/${repo}/contents/${path.split('/').map(encodeURIComponent).join('/')}`, {
+      headers: {
+        accept: 'application/vnd.github.raw+json',
+        authorization: `Bearer ${env.BOARD_GITHUB_TOKEN}`,
+        'user-agent': 'hub-board',
+        'x-github-api-version': '2022-11-28',
+      },
+    });
+    if (!response.ok) return { error: 'board_unavailable' };
+    sources.push({ name: path.split('/').slice(-2, -1)[0] || path, text: await response.text() });
+  }
+  return { board: buildBoard(sources) };
+}
 
 function appAllowed(appId, tier) {
   return Object.hasOwn(APP_ACCESS, appId) && APP_ACCESS[appId].includes(tier);
@@ -348,8 +383,19 @@ async function api(request, env, path, session, webauthn, now, canonicalOrigin, 
   const db = env.HUB_DB;
   if (request.method === 'GET' && path === '/hub/api/session') {
     return session
-      ? json({ username: session.username, entitlement: session.tier, apps: allowedApps(session.tier), locked: lockedApps(session.tier) })
+      ? json({
+        username: session.username,
+        entitlement: session.tier,
+        apps: [...allowedApps(session.tier), ...(isBoardOwner(session, env) ? ['board'] : [])],
+        locked: lockedApps(session.tier),
+      })
       : json({ error: 'unauthorized' }, 401);
+  }
+  if (request.method === 'GET' && path === '/hub/api/board') {
+    if (!session) return json({ error: 'unauthorized' }, 401);
+    if (!isBoardOwner(session, env)) return json({ error: 'forbidden' }, 403);
+    const result = await loadBoard(env);
+    return result.error ? json({ error: result.error }, 503) : json(result.board);
   }
   // Origin of POST requests is already checked once in fetch().
 
@@ -568,7 +614,7 @@ export function createWorker(webauthn = {
       if (pathname === '/hub/') pathname = '/hub/index.html';
       const assetPath = staticAssetPath(pathname);
       const appId = appIdForAsset(assetPath);
-      if (appId !== null && !appAllowed(appId, session.tier)) return new Response('Forbidden', { status: 403, headers: noStore });
+      if (appId === 'board' ? !isBoardOwner(session, env) : (appId !== null && !appAllowed(appId, session.tier))) return new Response('Forbidden', { status: 403, headers: noStore });
       const response = await env.ASSETS.fetch(withPath(request, assetPath));
       return new Response(response.body, { status: response.status, headers: { ...Object.fromEntries(response.headers), ...noStore } });
     },
