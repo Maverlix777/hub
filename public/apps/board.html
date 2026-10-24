@@ -1,0 +1,32 @@
+<!doctype html>
+<html lang="ru">
+<head>
+<meta charset="utf-8">
+<meta http-equiv="Content-Security-Policy" content="default-src 'self'; connect-src 'self' https://api.anthropic.com; style-src 'self' 'unsafe-inline'; base-uri 'self'; form-action 'self'">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<meta name="referrer" content="no-referrer">
+<meta name="color-scheme" content="light dark">
+<link rel="manifest" href="../manifest.webmanifest">
+<link rel="icon" type="image/png" href="../icons/icon-192.png">
+<link rel="apple-touch-icon" href="../icons/icon-180.png">
+<meta name="apple-mobile-web-app-title" content="Хаб">
+<meta name="theme-color" content="#f6f6f4" media="(prefers-color-scheme: light)">
+<meta name="theme-color" content="#141413" media="(prefers-color-scheme: dark)">
+<title>Задачи — Хаб</title>
+<link rel="stylesheet" href="../style.css">
+<link rel="stylesheet" href="board.css">
+</head>
+<body>
+<header class="bar">
+  <a class="btn" id="hub" href="../">← Хаб</a>
+  <h1>Задачи</h1>
+</header>
+<main class="board-page">
+  <p class="hint">Одна доска: идеи, запланировано (Ready), в работе (Claimed, Review, Changes, Blocked), готово (Done, Закрыта) и вопросы владельцу. Вопрос тоже задача: состояние Needs-owner или Blocked со словом владельца в строке. Источник — доски в agent-handoffs, данные читаются при открытии и нигде не хранятся.</p>
+  <p id="status" class="hint" role="status" aria-live="polite"></p>
+  <input id="q" type="search" placeholder="Поиск: номер, текст, кому" aria-label="Поиск">
+  <div id="columns" class="columns"></div>
+</main>
+<script src="board.js"></script>
+</body>
+</html>
