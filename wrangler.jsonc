@@ -27,6 +27,7 @@
     "CANONICAL_ORIGIN": "https://hub.kolobovdjp.org",
     "LEGACY_ORIGIN": "https://kolobovdjp.org",
     "RP_ID": "kolobovdjp.org",
-    "RP_NAME": "KOLOBOVDJP Hub"
+    "RP_NAME": "KOLOBOVDJP Hub",
+    "BOARD_OWNER_USERNAME": "maverlix,maverlixwin"
   }
 }

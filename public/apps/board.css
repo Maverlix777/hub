@@ -1,0 +1,12 @@
+.board-page { display: flex; flex-direction: column; gap: 12px; }
+.board-page input { width: 100%; max-width: 760px; }
+.columns { display: grid; grid-template-columns: repeat(auto-fit, minmax(240px, 1fr)); gap: 12px; align-items: start; }
+.col { background: var(--card); border: 1px solid var(--line); border-radius: 14px; padding: 12px; display: flex; flex-direction: column; gap: 8px; min-width: 0; }
+.col h2 { margin: 0; font-size: 16px; display: flex; justify-content: space-between; gap: 8px; }
+.col .count { color: var(--muted); font-weight: normal; }
+.col ul { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: 8px; max-height: 70vh; overflow-y: auto; }
+.card { border: 1px solid var(--line); border-radius: 10px; padding: 8px; font-size: 14px; display: flex; flex-direction: column; gap: 4px; }
+.card .id { font-size: 12px; color: var(--muted); }
+.card .meta { font-size: 12px; color: var(--muted); overflow-wrap: anywhere; }
+.col.questions { border-color: var(--accent); }
+.empty { color: var(--muted); font-size: 14px; }
