@@ -129,7 +129,7 @@ test('registration verifies a real WebAuthn response and starts a free session',
   assert.match(response.headers.get('set-cookie'), /Path=\//);
   assert.equal(sqlite.prepare('SELECT count(*) AS n FROM entitlements WHERE tier = \'free\'').get().n, 1);
   const session = await worker.fetch(req('/hub/api/session', { cookie: sessionCookie }), env);
-  assert.deepEqual(await jsonResponse(session), { username: 'test.user', entitlement: 'free' });
+  assert.deepEqual(await jsonResponse(session), { username: 'test.user', entitlement: 'free', apps: ['chat', 'downloads'], locked: ['location-fusion', 'job-forge'] });
 });
 
 test('a registered user can log in with a cryptographically signed assertion', async () => {
@@ -216,7 +216,7 @@ test('gateway preserves canonical Origin, Cookie, query, and signed login while 
   assert.equal(lastAssetRequest.headers.has('X-Hub-Client-IP'), false);
 
   const session = await worker.fetch(gatewayReq('/hub/api/session', { cookie: sessionCookie }), env);
-  assert.deepEqual(await jsonResponse(session), { username: 'test.user', entitlement: 'free' });
+  assert.deepEqual(await jsonResponse(session), { username: 'test.user', entitlement: 'free', apps: ['chat', 'downloads'], locked: ['location-fusion', 'job-forge'] });
 
   const start = await worker.fetch(gatewayReq('/hub/api/login/options', {
     method: 'POST', body: { username: 'test.user' }, clientIP: '198.51.100.61',

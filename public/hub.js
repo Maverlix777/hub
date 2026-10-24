@@ -34,6 +34,18 @@
     sessionStatus.hidden = false;
   }
 
+  // The server enforces access to own apps; this only hides tiles the session tier cannot open.
+  // Own apps: hidden unless allowed. External tiles: hidden only when the server lists them as locked.
+  const tileItems = new Map();
+  function hideDeniedTiles(allowed, locked) {
+    for (const app of apps) {
+      const external = /^https?:/i.test(app.href || '');
+      const denied = external ? locked.includes(app.id) : Boolean(app.href) && !allowed.includes(app.id);
+      const li = tileItems.get(app.id);
+      if (denied && li) li.hidden = true;
+    }
+  }
+
   function checkSession() {
     if (ended) return Promise.resolve(false);
     if (checking) return checking;
@@ -46,6 +58,7 @@
         const session = await response.json();
         if (ended) return false;
         if (!session || typeof session.username !== 'string' || !session.username.trim()) throw new Error('invalid_session');
+        if (Array.isArray(session.apps)) hideDeniedTiles(session.apps, Array.isArray(session.locked) ? session.locked : []);
         accountName.textContent = session.username;
         account.hidden = false;
         logout.hidden = false;
@@ -86,6 +99,7 @@
   try { localStorage.removeItem('hub.chat.key'); } catch { /* storage may be unavailable */ }
   for (const app of apps) {
     const li = document.createElement('li');
+    tileItems.set(app.id, li);
     const ready = app.status === 'ready' && app.href;
     const tile = document.createElement(ready ? 'a' : 'div');
     tile.className = 'tile' + (ready ? '' : ' soon');

@@ -21,6 +21,38 @@ const noStore = {
   'content-security-policy': "frame-ancestors 'none'",
 };
 const STATIC_CACHE_CONTROL = 'private, max-age=3600';
+// Registration policy A (owner, 23.10.2026): anyone may register; the server decides app access by tier.
+// Every file under /hub/apps/<id>.* needs an entry here; an app missing from the matrix is denied.
+// External tiles listed here (location-fusion) are only hidden in the hub: their hosts are outside this Worker.
+const APP_ACCESS = Object.freeze({
+  chat: Object.freeze(['free', 'paid']),
+  downloads: Object.freeze(['free', 'paid']),
+  'location-fusion': Object.freeze(['paid']),
+  // Job Forge: only a plan so far (agent-handoffs, 20.10.2026); reserved paid-only before its files land in public/apps/.
+  'job-forge': Object.freeze(['paid']),
+});
+
+function appAllowed(appId, tier) {
+  return Object.hasOwn(APP_ACCESS, appId) && APP_ACCESS[appId].includes(tier);
+}
+
+function allowedApps(tier) {
+  return Object.keys(APP_ACCESS).filter((id) => appAllowed(id, tier));
+}
+
+function lockedApps(tier) {
+  return Object.keys(APP_ACCESS).filter((id) => !appAllowed(id, tier));
+}
+
+// '/apps/chat.js' -> 'chat'; null for paths outside /apps/; '' for anything else under /apps/ (denied).
+// assetPath is already decoded by safePublicPath; slashes are collapsed and case folded so '//apps/' or 'APPS' cannot skip it.
+function appIdForAsset(assetPath) {
+  const canonical = assetPath.replace(/\/+/g, '/').toLowerCase();
+  if (!canonical.startsWith('/apps/') && canonical !== '/apps') return null;
+  const match = /^\/apps\/([a-z0-9-]+)\.[a-z]+$/.exec(assetPath);
+  return match ? match[1] : '';
+}
+
 const CACHEABLE_STATIC = /^\/hub\/(?:icons\/.+|style\.css|login\.css|manifest\.webmanifest|apps\/[^/]+\.css)$/;
 // Doktor pages are public and session-free, so they may be cached by shared caches.
 const DOKTOR_CACHE_CONTROL = 'public, max-age=300';
@@ -315,7 +347,9 @@ function responseWithCookie(response, cookie) {
 async function api(request, env, path, session, webauthn, now, canonicalOrigin, trustedClientIP = null) {
   const db = env.HUB_DB;
   if (request.method === 'GET' && path === '/hub/api/session') {
-    return session ? json({ username: session.username, entitlement: session.tier }) : json({ error: 'unauthorized' }, 401);
+    return session
+      ? json({ username: session.username, entitlement: session.tier, apps: allowedApps(session.tier), locked: lockedApps(session.tier) })
+      : json({ error: 'unauthorized' }, 401);
   }
   // Origin of POST requests is already checked once in fetch().
 
@@ -533,6 +567,8 @@ export function createWorker(webauthn = {
       if (!['GET', 'HEAD'].includes(request.method)) return new Response('Method not allowed', { status: 405, headers: { ...noStore, allow: 'GET, HEAD' } });
       if (pathname === '/hub/') pathname = '/hub/index.html';
       const assetPath = staticAssetPath(pathname);
+      const appId = appIdForAsset(assetPath);
+      if (appId !== null && !appAllowed(appId, session.tier)) return new Response('Forbidden', { status: 403, headers: noStore });
       const response = await env.ASSETS.fetch(withPath(request, assetPath));
       return new Response(response.body, { status: response.status, headers: { ...Object.fromEntries(response.headers), ...noStore } });
     },
