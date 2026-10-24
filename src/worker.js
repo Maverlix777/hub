@@ -502,10 +502,18 @@ export function createWorker(webauthn = {
   const core = {
     async fetch(request, env) {
       const now = Date.now();
-      const canonicalOrigin = env.CANONICAL_ORIGIN || 'https://kolobovdjp.org';
+      const canonicalOrigin = env.CANONICAL_ORIGIN || 'https://hub.kolobovdjp.org';
       const receivedUrl = new URL(request.url);
       let trustedClientIP = null;
-      if (receivedUrl.origin === canonicalOrigin) {
+      const legacyOrigin = env.LEGACY_ORIGIN || 'https://kolobovdjp.org';
+      if (receivedUrl.origin === legacyOrigin && legacyOrigin !== canonicalOrigin
+        && (receivedUrl.pathname === '/hub' || receivedUrl.pathname.startsWith('/hub/'))) {
+        // Old address: send every /hub/* request to the hub host (the RP ID stays the parent domain).
+        const target = new URL(receivedUrl.pathname + receivedUrl.search, canonicalOrigin);
+        return Response.redirect(target.toString(), ['GET', 'HEAD'].includes(request.method) ? 301 : 308);
+      }
+      if (receivedUrl.origin === canonicalOrigin || receivedUrl.origin === legacyOrigin) {
+        // /doktor/* stays reachable on the old host too; it is public and reads no cookie.
         request = stripGatewayHeaders(request);
       } else {
         if (!isExactOrigin(env.HUB_GATEWAY_ORIGIN) || receivedUrl.origin !== env.HUB_GATEWAY_ORIGIN) {
