@@ -6,13 +6,13 @@
 Личный лаунчер приложений владельца: одна страница с плитками, мобильная в первую очередь, тема по системе.
 Фронтенд: чистые HTML, CSS, JS без сборки и сторонних скриптов. С #5/#6 рядом Cloudflare Worker (`src/worker.js`, вход по passkey, D1) — см. `CLOUDFLARE.md`, `README.md`. Repo `maverlix777/hub`.
 
-## Актуально на 23.10.2026 (`main` = `804df43`)
+## Актуально на 24.10.2026 (`main` = `7e1c443`, #32)
 - Источник фронтенда — `public/` (его раздаёт Worker, его читают тесты и `tools/build-site.py`). Старые корневые копии удалены 23.10; пути ниже — внутри `public/`.
 - Прод `kolobovdjp.org/hub/` — ПРИВАТНАЯ сборка владельца, её в repo нет. `deploy-worker.yml` из `main` её затирает (так было 21.10, откатывали вручную): не запускать без «да» владельца на конкретный запуск.
 - Pages (`maverlix777.github.io/hub/`) отдают только редиректы на `kolobovdjp.org/hub/` + политику Krenkballs + `/doktor/`.
 - `/doktor/*` — побайтовая копия `site/doktor` из repo doktor, здесь не править.
 - Задачи идут как SITE-N (ветки `zhanna/SITE-*`); политика регистрации — А (открытая + доступ по entitlement, решение владельца 23.10): матрица `APP_ACCESS` в `src/worker.js`; новое приложение в `public/apps/` без записи в матрице отдаёт 403. Платные (только `paid`, решение 23.10): Location Fusion — внешняя плитка, хаб её только скрывает (`locked` в `/hub/api/session`), сам `kolobovdjp.org/locationfusion/` Worker хаба не защищает; Job Forge — пока только план (`agent-handoffs`, 20.10), id `job-forge` заранее в матрице как `paid`.
-- Проверки: `npm ci && npm test` (Worker), `npm run check` (CSP, реестр, artifact, редиректы), браузерные — `tests/*.cjs` с `NODE_PATH`.
+- Проверки: `npm ci && npm test` (Worker), `npm run check` (CSP, реестр, artifact, редиректы), браузерные — `tests/*.cjs` с `NODE_PATH`. CI также гоняет `npm audit --audit-level=high`; `undici` закреплён в `overrides` (`package.json`), обновления зависимостей — PR от Dependabot (`.github/dependabot.yml`, playwright вручную).
 
 ## Структура
 - `public/index.html` — хаб. Массив APPS — JSON-блок `<script type="application/json" id="apps">` в начале файла

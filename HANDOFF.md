@@ -1,8 +1,12 @@
-# HANDOFF — Хаб (23.10.2026)
+# HANDOFF — Хаб (24.10.2026)
 
 ## Версии
-- `main` = `804df43` (#29). CI «Hub checks and Pages» на нём — success (run 39626905912). Открытых PR нет.
+- `main` = `7e1c443` (#32). CI `checks` на голове PR #32 (`33f1d23`) — success (run 40047008873).
+- 23–24.10 влиты #31 (удалены корневые копии) и #32 (матрица доступа А, платные Location Fusion и `job-forge`, override `undici` 7.30.1).
 - С 18.10 влиты #7–#29: задачи SITE-1…17 (ветки `zhanna/SITE-*`), каталог игр, страницы Доктора, ручной деплой Worker.
+
+## Проверки в облаке на голове #32 (24.10)
+- `npm ci && npm test` → 108 из 108; `npm audit --audit-level=high` → 0; site4 21/21, check-subpath 53/53, e2e 82/82.
 
 ## Проверки в облаке на `804df43` (23.10)
 - `npm ci && npm test` → 102 из 102 (Worker: WebAuthn, сессии, hardening, покрытие, `/doktor/`).
@@ -18,6 +22,7 @@
 
 ## Owner gates
 1. Политика регистрации: выбран вариант А (23.10). Матрица `APP_ACCESS` в `src/worker.js`, free и paid видят chat и downloads; только paid — Location Fusion (плитка скрыта, внешний URL не защищён) и `job-forge` (зарезервирован, приложения ещё нет), решение 23.10.
+   Закрыть сам `kolobovdjp.org/locationfusion/` из этого repo нельзя: Worker хаба этот путь не получает (в `wrangler.jsonc` и `src/` маршрута нет, раздаёт его шлюз/приватная часть). Нужна проверка tier на стороне, которая отдаёт `/locationfusion/`, — решение и доступ владельца.
 2. Любой запуск `deploy-worker.yml` и сведение приватной сборки с `main`.
 3. Ключ Claude на iPhone внутри значка «Домой» (новый origin — ключ вводить заново).
 4. Публикация сборок в GitHub Releases; подписанные сборки и ключи — только с «да».
