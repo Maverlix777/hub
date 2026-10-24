@@ -8,7 +8,7 @@ const fs = require('fs');
 const path = require('path');
 
 const ROOT = path.resolve(__dirname, '..');
-const SITE_ROOT = process.env.HUB_SITE_ROOT ? path.resolve(process.env.HUB_SITE_ROOT) : ROOT;
+const SITE_ROOT = process.env.HUB_SITE_ROOT ? path.resolve(process.env.HUB_SITE_ROOT) : path.join(ROOT, 'public');
 const PREFIX = '/hub/';
 const MIME = {
   '.html': 'text/html; charset=utf-8', '.js': 'text/javascript; charset=utf-8', '.css': 'text/css; charset=utf-8',
