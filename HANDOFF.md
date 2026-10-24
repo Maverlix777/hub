@@ -1,3 +1,22 @@
+# HANDOFF — Хаб (24.10.2026), обновление: поддомен
+
+## Что в проде сейчас (24.10, после PR #36 и #37)
+- `hub.kolobovdjp.org` обслуживает НОВЫЙ Worker `kolobovdjp-hub-next`, собран из `main` этого repo (версия `cb3349ce-dab0-4c5a-83cf-de15bf5b679c`), custom domain из `wrangler.jsonc`, тот же D1 `hub-auth`, `RP_ID=kolobovdjp.org` (passkeys работают). Секрет `RATE_LIMIT_HMAC_KEY` для него сгенерирован заново.
+- Приватный Worker `kolobovdjp-hub` (версия `cf0752a8-c0b1-40e9-a0ef-f49ac8902b79`, owner-download, push, шлюз) НЕ тронут и продолжает отдавать `kolobovdjp.org/hub/*` через шлюз. Исходник приватной сборки в доступных репо не найден (локально только старая `~/.codex/hub-private-download-deploy-2026-10-18/`, не равна живой). Поэтому поверх него не деплоили.
+- 301 с `kolobovdjp.org/hub/` на поддомен НЕ работает: `/hub/*` на апексе отдаёт приватный Worker через шлюз (там сейчас 302 на `/hub/login/`). Нужна правка на стороне шлюза/приватной сборки, решение владельца.
+- `BOARD_OWNER_USERNAME` = `maverlix,maverlixwin` (список через запятую). Секрет `BOARD_GITHUB_TOKEN` не задан: без него `/hub/api/board` отвечает 503 владельцу.
+
+## Деплой
+- Локальный конфиг (в .gitignore): копия `wrangler.jsonc` с реальным D1 id (`npx wrangler d1 list`) и `"name": "kolobovdjp-hub-next"` → `npx wrangler deploy --config wrangler.production.local.jsonc`. Не деплоить под именем `kolobovdjp-hub`: затрёт приватный Worker.
+- Секреты нового Worker: `npx wrangler secret put RATE_LIMIT_HMAC_KEY --name kolobovdjp-hub-next`, `... BOARD_GITHUB_TOKEN --name kolobovdjp-hub-next` (fine-grained PAT, только чтение Contents в Maverlix777/agent-handoffs).
+
+## Откат
+- `npx wrangler delete --name kolobovdjp-hub-next` (снимает и custom domain); прод `kolobovdjp-hub` не менялся. Версии: `npx wrangler rollback --name kolobovdjp-hub-next`.
+
+## Проверки 24.10 (curl)
+- `hub.kolobovdjp.org/hub/login/` 200; `/hub/login` 308 на слэш; `/hub/api/board` и `/hub/api/session` без сессии 401; `kolobovdjp.org/doktor/` 200; `kolobovdjp.org/hub/` 302 (не 301, см. выше). `npm test` 116 из 116.
+- Не проверено: вход passkey на новом хосте, owner-доступ к доске (нет токена).
+
 # HANDOFF — Хаб (24.10.2026)
 
 ## Версии
