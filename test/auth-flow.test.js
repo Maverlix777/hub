@@ -282,7 +282,7 @@ test('public auth UI, aliases, protected assets, and logout have expected routin
   assert.equal(lastAssetRequest.headers.has('X-Hub-Gateway-Token'), false);
   assert.equal(lastAssetRequest.headers.has('X-Hub-Client-IP'), false);
   assert.match(indexHtml, /connect-src 'self' https:\/\/api\.anthropic\.com/);
-  assert.match(loginHtml, /<a href="\/privacy\/">Конфиденциальность<\/a>/);
+  assert.match(loginHtml, /<a href="https:\/\/kolobovdjp\.org\/privacy\/">Конфиденциальность<\/a>/);
   assert.equal((await worker.fetch(req('/хаб/'), env)).status, 308);
   const headLogin = await worker.fetch(req('/hub/login', { method: 'HEAD' }), env);
   assert.equal(headLogin.status, 308);
