@@ -1,6 +1,7 @@
 import { Buffer } from 'node:buffer';
-import { buildBoard } from './board.js';
+import { loadBoardSources } from './board-sources.js';
 import { readTelemetry } from './telemetry.js';
+import { validatePayload, existingSubmission, enqueue, listSubmissions } from './outbox.js';
 import {
   generateAuthenticationOptions,
   generateRegistrationOptions,
@@ -43,31 +44,11 @@ function isBoardOwner(session, env) {
   return Boolean(session && owners.includes(session.username.toLowerCase()));
 }
 
-const BOARD_REPO = /^[A-Za-z0-9_.-]+\/[A-Za-z0-9_.-]+$/;
-const BOARD_PATH = /^[A-Za-z0-9_./-]+\.md$/;
-const BOARD_DEFAULT_PATHS = 'proposals/ai-factory-jobforge/BOARD.md,proposals/site-kolobovdjp/BOARD.md';
-
 // Reads the private board files at request time; nothing is stored here. Token never leaves the Worker.
 async function loadBoard(env, fetchImpl = fetch) {
-  const repo = env.BOARD_REPO || 'Maverlix777/agent-handoffs';
-  const paths = (env.BOARD_PATHS || BOARD_DEFAULT_PATHS).split(',').map((p) => p.trim()).filter(Boolean);
-  if (!env.BOARD_GITHUB_TOKEN || !BOARD_REPO.test(repo) || !paths.length || !paths.every((p) => BOARD_PATH.test(p) && !p.includes('..'))) {
-    return { error: 'board_unavailable' };
-  }
-  const sources = [];
-  for (const path of paths) {
-    const response = await fetchImpl(`https://api.github.com/repos/${repo}/contents/${path.split('/').map(encodeURIComponent).join('/')}`, {
-      headers: {
-        accept: 'application/vnd.github.raw+json',
-        authorization: `Bearer ${env.BOARD_GITHUB_TOKEN}`,
-        'user-agent': 'hub-board',
-        'x-github-api-version': '2022-11-28',
-      },
-    });
-    if (!response.ok) return { error: 'board_unavailable' };
-    sources.push({ name: path.split('/').slice(-2, -1)[0] || path, text: await response.text() });
-  }
-  return { board: { ...buildBoard(sources), telemetry: await readTelemetry(env, fetchImpl) } };
+  const result = await loadBoardSources(env, fetchImpl);
+  if (result.error) return result;
+  return { board: { ...result.board, telemetry: await readTelemetry(env, fetchImpl) } };
 }
 
 function appAllowed(appId, tier) {
@@ -399,6 +380,46 @@ async function api(request, env, path, session, webauthn, now, canonicalOrigin, 
     if (!isBoardOwner(session, env)) return json({ error: 'forbidden' }, 403);
     const result = await loadBoard(env);
     return result.error ? json({ error: result.error }, 503) : json(result.board);
+  }
+  if (path === '/hub/api/outbox') {
+    if (!session) return json({ error: 'unauthorized' }, 401);
+    if (!isBoardOwner(session, env)) return json({ error: 'forbidden' }, 403);
+    try {
+      if (request.method === 'GET') {
+        const page = await listSubmissions(db, session.id, new URL(request.url).searchParams.get('before'));
+        // No bridge is silently enabled: deployment must configure an approved existing writer.
+        return json({ ...page, delivery: { status: 'not_configured' } });
+      }
+      if (request.method !== 'POST') return json({ error: 'method_not_allowed' }, 405, { allow: 'GET, POST' });
+      if (request.headers.get('X-Hub-Request') !== '1'
+        || (request.headers.has('sec-fetch-site') && request.headers.get('sec-fetch-site') !== 'same-origin')) {
+        return json({ error: 'forbidden_request' }, 403);
+      }
+      const payload = validatePayload(await readJson(request));
+      if (!payload) return json({ error: 'invalid_payload' }, 400);
+      if (!rateLimitKeyReady(env) || !(trustedClientIP || request.headers.get('CF-Connecting-IP'))) {
+        return json({ error: 'outbox_unavailable' }, 503);
+      }
+      if (!await applyRateLimit(db, env, request, 'owner-outbox', session.id, 20, now, trustedClientIP)) {
+        return json({ error: 'rate_limited' }, 429, { 'retry-after': '60' });
+      }
+      const existing = await existingSubmission(db, session.id, payload);
+      if (existing) return json(existing, existing.error ? 409 : 200);
+      if (payload.target) {
+        const result = await loadBoard(env);
+        if (result.error) return json({ error: result.error }, 503);
+        const source = result.board.sources.find((entry) => entry.path === payload.target.sourcePath);
+        if (source?.status === 'error') return json({ error: 'board_unavailable' }, 503);
+        const target = result.board.cards.find((card) => card.id === payload.target.taskId && card.sourcePath === payload.target.sourcePath);
+        if (!target) return json({ error: 'invalid_target' }, 400);
+        if (target.sourceRevision !== payload.target.revision) return json({ error: 'target_conflict' }, 409);
+      }
+      const saved = await enqueue(db, session.id, payload, now);
+      return json(saved, saved.error ? 409 : saved.duplicate ? 200 : 201);
+    } catch {
+      // A missing unapplied migration and a transient storage failure are not an empty queue.
+      return json({ error: 'outbox_unavailable' }, 503);
+    }
   }
   // Origin of POST requests is already checked once in fetch().
 
