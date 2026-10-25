@@ -6,6 +6,34 @@ Date: 2026-10-25. Reviewer: the dedicated QA subagent, separate from UI, ingesti
 
 The expanded harness uses actual `worker.fetch(request, env, ctx)`, real SQLite with migrations 0001/0002/0003, and actual server-side Issues delivery code scheduled through `ctx.waitUntil`. Only the GitHub wire responses are synthetic. Both authors are explicitly mapped by stable synthetic Hub user ID, username and GitHub login. A third account remains denied even when the legacy owner list contains its username. No real owner mapping is inferred or deployed.
 
+### P2 pending recovery regression
+
+Independent regression: `tests/hub-acceptance-resume.cjs`. Scope is only recovery of already persisted pending records using the existing same-key POST API. It changes no identity policy, credential, timer, production setting or delivery adapter. Legacy username compatibility is deliberately outside this P2 change; the explicit two-author configuration used by the earlier acceptance tests is not a demand to remove that compatibility.
+
+Baseline **failed** using the exact board assets from `fb4088287afa5aa9cf88983dfb54ff585bef0ec0`, selected through the test-only `HUB_RESUME_ASSET_REF=fb40882` option. The harness serves those bytes via `git show`; it does not revert or edit the shared checkout. Backend product files are identical across the baseline and fix: the intervening changes only touch `public/apps/board.js` and tests.
+
+```text
+BASELINE board assets from exact Git ref fb40882; no shared checkout edits
+AssertionError [ERR_ASSERTION]: P2 pending saved with delivery disabled has no UI resume action after enabling delivery and reload
+0 !== 1
+actual: 0
+expected: 1
+exit code: 1
+```
+
+The same regression passed with normal current assets at `19a04e3285129c14912a9d431f32b7e12f01d296`, including UI fix `56bd6a4a016016453f058eac9fee080c014e6cb2`:
+
+```text
+node --experimental-sqlite tests/hub-acceptance-resume.cjs
+PASS P2 disabled-to-enabled persisted pending resumes from UI with original key and one Issue POST
+PASS P2 expired claim without intent resumes safely and creates exactly one Issue
+PASS P2 expired durable intent reconciles accepted Issue through UI without another POST
+RESULT P2 3 passed; synthetic GitHub only; no timer or policy change
+exit code: 0
+```
+
+This is actual browser/Worker/SQLite behavior with a synthetic GitHub endpoint. The crash cases deliberately leave an expired real SQLite lease: one before a durable delivery intent or POST, the other after recording intent and simulating remote acceptance but before storing a receipt. The first performs exactly one POST; the second only reconciles and performs no additional POST. Two immediate button clicks still produce one same-key resume request per item. All three original records become synced without a duplicate outbox row. No new scheduler is involved. CI now runs this regression separately from the existing 22-check suite.
+
 The synthetic GitHub fixture verifies new issue POSTs contain only the existing `idea` label, with no worker assignment or ready/execution label. Answers create comments on the configured existing task issue and leave its worker/cloud-state labels untouched. Delivery requires a separate exact readback. SAVED, DELIVERED, ACK and RESULT remain distinct; neither an Issue receipt nor a legacy Markdown receipt establishes an agent ACK/result.
 
 ```text
