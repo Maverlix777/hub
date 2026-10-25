@@ -27,10 +27,10 @@ const SAMPLE = `# Board
 | T-10 | Kappa | q | abc1234 |
 `;
 
-test('board: states map to the five columns', () => {
+test('board: states map to separate review and progress columns', () => {
   assert.equal(columnForState('Ready'), 'planned');
   assert.equal(columnForState('Claimed'), 'progress');
-  assert.equal(columnForState('Review (x)'), 'progress');
+  assert.equal(columnForState('Review (x)'), 'review');
   assert.equal(columnForState('Done (merged PR #1)'), 'done');
   assert.equal(columnForState('Закрыта: superseded'), 'done');
   assert.equal(columnForState('Needs-owner'), 'questions');
@@ -45,7 +45,7 @@ test('board: parser counts per column, handles pipes in code and the 4-column cl
   assert.equal(unmapped.length, 1);
   assert.equal(unmapped[0].id, 'T-9');
   const board = buildBoard([{ name: 'x', text: SAMPLE }]);
-  assert.deepEqual(board.counts, { ideas: 1, planned: 1, progress: 3, done: 2, questions: 2 });
+  assert.deepEqual(board.counts, { ideas: 1, planned: 1, progress: 2, review: 1, done: 2, questions: 2 });
   assert.equal(cards.find((c) => c.id === 'T-1').title, 'Alpha a | b task');
   assert.equal(cards.find((c) => c.id === 'T-10').column, 'done');
 });
@@ -70,6 +70,7 @@ const env = {
   RP_ID: 'kolobovdjp.org',
   BOARD_OWNER_USERNAME: 'boss',
   BOARD_GITHUB_TOKEN: 'test-token-not-real',
+  BOARD_IDEA_PATHS: '',
 };
 const realFetch = globalThis.fetch;
 after(() => { globalThis.fetch = realFetch; sqlite.close(); });
@@ -101,7 +102,7 @@ test('board api: owner gets cards, token goes only to api.github.com', async () 
   assert.equal(response.status, 200);
   assert.equal(response.headers.get('cache-control'), 'no-store');
   const body = await response.json();
-  assert.deepEqual(body.counts, { ideas: 2, planned: 2, progress: 6, done: 4, questions: 4 });
+  assert.deepEqual(body.counts, { ideas: 2, planned: 2, progress: 4, review: 2, done: 4, questions: 4 });
   assert.equal(calls.length, 2);
   assert.ok(calls.every((c) => c.url.startsWith('https://api.github.com/repos/')));
   assert.ok(!JSON.stringify(body).includes('test-token'));
@@ -148,7 +149,7 @@ test('telemetry authorization precedes all reads and optional failure preserves 
   assert.equal(response.status, 200);
   assert.equal(response.headers.get('cache-control'), 'no-store');
   const result = await response.json();
-  assert.deepEqual(result.counts, { ideas: 2, planned: 2, progress: 6, done: 4, questions: 4 });
+  assert.deepEqual(result.counts, { ideas: 2, planned: 2, progress: 4, review: 2, done: 4, questions: 4 });
   assert.equal(result.cards[0].who, 'x');
   assert.equal(result.telemetry.status, 'unknown');
   assert.equal(calls, 3);

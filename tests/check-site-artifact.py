@@ -20,13 +20,13 @@ with tempfile.TemporaryDirectory(prefix="hub-site-check-") as temp:
                 "icons/icon-512.png",
                 "doktor/index.html", "doktor/privacy.html", "doktor/support.html", "doktor/terms.html", "doktor/style.css",
                 "doktor/blog/first-post.html", "doktor/blog/index.html", "doktor/downloads/index.html"}
-    present = {str(path.relative_to(site)) for path in site.rglob("*") if path.is_file()}
+    present = {path.relative_to(site).as_posix() for path in site.rglob("*") if path.is_file()}
     missing = sorted(expected - present)
     extra = sorted(present - expected)
     if missing or extra:
         raise SystemExit(f"site artifact mismatch; missing={missing}, extra={extra}")
     for html_path in site.rglob("*.html"):
-        html = html_path.read_text()
+        html = html_path.read_text(encoding="utf-8")
         for ref in re.findall(r'<(?:script|link)[^>]+(?:src|href)="([^"]+)"', html):
             if ref.startswith(("https://", "http://", "#")):
                 continue

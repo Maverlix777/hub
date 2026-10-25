@@ -2,32 +2,51 @@
 <html lang="ru">
 <head>
 <meta charset="utf-8">
-<meta http-equiv="Content-Security-Policy" content="default-src 'self'; connect-src 'self' https://api.anthropic.com; style-src 'self' 'unsafe-inline'; base-uri 'self'; form-action 'self'">
+<meta http-equiv="Content-Security-Policy" content="default-src 'self'; connect-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; base-uri 'self'; form-action 'self'">
 <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
 <meta name="referrer" content="no-referrer">
-<meta name="color-scheme" content="light dark">
-<link rel="manifest" href="../manifest.webmanifest">
+<meta name="color-scheme" content="light">
+<meta name="theme-color" content="#f3f5f9">
 <link rel="icon" type="image/png" href="../icons/icon-192.png">
-<link rel="apple-touch-icon" href="../icons/icon-180.png">
-<meta name="apple-mobile-web-app-title" content="Хаб">
-<meta name="theme-color" content="#f6f6f4" media="(prefers-color-scheme: light)">
-<meta name="theme-color" content="#141413" media="(prefers-color-scheme: dark)">
-<title>Задачи — Хаб</title>
+<title>Рабочая доска — Хаб</title>
 <link rel="stylesheet" href="../style.css">
 <link rel="stylesheet" href="board.css">
 </head>
 <body>
 <header class="bar">
   <a class="btn" id="hub" href="../">← Хаб</a>
-  <h1>Задачи</h1>
+  <h1>Рабочая доска</h1>
+  <span class="private-label">Закрытое рабочее пространство</span>
+  <button id="refresh" type="button">Обновить</button>
 </header>
 <main class="board-page">
-  <p class="hint">Одна доска: идеи, запланировано (Ready), в работе (Claimed, Review, Changes, Blocked), готово (Done, Закрыта) и вопросы владельцу. Вопрос тоже задача: состояние Needs-owner или Blocked со словом владельца в строке. Источник — доски в agent-handoffs, данные читаются при открытии и нигде не хранятся.</p>
-  <p id="status" class="hint" role="status" aria-live="polite"></p>
-  <input id="q" type="search" placeholder="Поиск: номер, текст, кому" aria-label="Поиск">
-  <div id="columns" class="columns"></div>
-  <section id="telemetry" class="telemetry" aria-label="Локальная активность Снежанны"></section>
+  <section class="intro">
+    <div><p class="eyebrow">ЗАДАЧИ И РЕШЕНИЯ</p><h2>Всё важное — перед глазами</h2>
+    <p class="hint">Открой карточку, проверь детали и ответь там, где нужно твоё решение.</p></div>
+    <p id="status" class="status" role="status" aria-live="polite">Загружаем доску…</p>
+  </section>
+  <section id="questions" class="panel questions" aria-labelledby="questions-title">
+    <div class="section-heading"><h2 id="questions-title">Нужен твой ответ</h2><span id="question-count" class="count">…</span></div>
+    <p class="hint">Ответ сохраняется в очереди. Доставка подтверждается отдельной квитанцией.</p>
+    <ul id="question-list" class="question-list"><li class="empty">Загрузка вопросов…</li></ul>
+  </section>
+  <section class="work-section" aria-labelledby="work-title">
+    <div class="section-heading"><h2 id="work-title">В работе команды</h2><label class="search-label" for="q">Поиск <input id="q" type="search" placeholder="Номер, задача, исполнитель"></label></div>
+    <div id="columns" class="columns" aria-busy="true"></div>
+  </section>
+  <div class="support-grid">
+    <section id="ideas" class="panel" aria-labelledby="ideas-title"><div class="section-heading"><h2 id="ideas-title">Идеи</h2><span id="idea-count" class="count">…</span></div><div id="sources" class="source-status"></div><ul id="idea-list" class="idea-list"><li class="empty">Загружаем источники…</li></ul></section>
+    <section id="telemetry" class="panel" aria-label="Работа Снежанны"><h2>Снежанна</h2><p class="hint">Загружаем последнее наблюдение…</p></section>
+  </div>
+  <section id="inbox" class="panel inbox" aria-labelledby="inbox-title">
+    <div class="section-heading"><h2 id="inbox-title">Написать Снежанне</h2><span class="eyebrow">ИДЕЯ · ЗАДАНИЕ · УТОЧНЕНИЕ</span></div>
+    <p class="hint">Сообщения разрешённых авторов сохраняются с указанием автора. Отдельно показываем доставку в GitHub Issues, ответ исполнителя и результат.</p>
+    <p id="delivery-status" class="status" role="status">Проверяем доставку…</p>
+    <form id="message-form"><label for="message-text">Новое сообщение</label><textarea id="message-text" name="text" rows="3" maxlength="8000" required placeholder="Что нужно сделать или уточнить?"></textarea><div class="composer-actions"><span class="hint">До 8000 символов</span><button class="primary" type="submit">Сохранить сообщение</button></div><p class="form-status" role="status" aria-live="polite"></p></form>
+    <h3>Твои сообщения и ответы</h3><ul id="outbox-list" class="outbox-list"><li class="empty">Загружаем очередь…</li></ul>
+  </section>
 </main>
+<dialog id="task-dialog" aria-labelledby="detail-title"><div class="dialog-toolbar"><span id="detail-id" class="eyebrow"></span><button id="close-detail" type="button" aria-label="Закрыть карточку">Закрыть ×</button></div><div id="detail-content"></div></dialog>
 <script src="board.js"></script>
 </body>
 </html>

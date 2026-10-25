@@ -45,10 +45,15 @@ function createServer() { return http.createServer((req, res) => {
     res.writeHead(200, { 'content-type': 'application/json', 'cache-control': 'no-store' });
     res.end(JSON.stringify({
       cards: [{ id: 'SYNTHETIC-1', title: 'Synthetic board task', who: 'test', state: 'Review',
-        ref: '', source: 'synthetic', column: 'progress' }],
-      counts: { ideas: 0, planned: 0, progress: 1, done: 0, questions: 0 }, unmappedCount: 0,
+        ref: '', source: 'synthetic', column: 'review' }],
+      counts: { ideas: 0, planned: 0, progress: 0, review: 1, done: 0, questions: 0 }, unmappedCount: 0,
       telemetry: { status: 'unknown', reason: 'not_configured', events: [], runs: [], gpu: { status: 'unknown', samples: [] } },
     }));
+    return;
+  }
+  if (req.method === 'GET' && url === PREFIX + 'api/outbox') {
+    res.writeHead(200, { 'content-type': 'application/json', 'cache-control': 'no-store' });
+    res.end(JSON.stringify({ items: [], nextCursor: null, delivery: { status: 'not_configured' } }));
     return;
   }
   let rel = url.slice(PREFIX.length);
@@ -69,7 +74,7 @@ async function main() {
   const registry = jsonBlock('apps/downloads.html', 'manifest');
   const local = apps.filter((a) => !/^https:\/\//i.test(a.href));
 
-  const browser = await chromium.launch();
+  const browser = await chromium.launch(process.env.HUB_BROWSER ? { executablePath: process.env.HUB_BROWSER } : {});
   for (const [w, h] of [[390, 844], [1280, 800]]) {
     const ctx = await browser.newContext({ viewport: { width: w, height: h } });
     const p = await ctx.newPage();
@@ -112,7 +117,10 @@ async function main() {
       if (a.id === 'board') {
         await p.waitForSelector('#columns .card');
         check(`[${w}] board renders synthetic API card`, (await p.textContent('#columns')).includes('Synthetic board task'));
-        check(`[${w}] board renders unavailable telemetry explicitly`, (await p.textContent('#telemetry')).includes('unknown'));
+        const telemetry = await p.textContent('#telemetry');
+        check(`[${w}] board renders unavailable telemetry explicitly`, telemetry.includes('Свежесть неизвестна') && telemetry.includes('Нет доступных событий'));
+        await p.waitForFunction(() => document.getElementById('delivery-status').textContent.includes('Канал GitHub Issues ещё не подключён'));
+        check(`[${w}] board distinguishes persisted queue from unconfigured delivery`, (await p.textContent('#delivery-status')).includes('Канал GitHub Issues ещё не подключён'));
       }
       await p.click('#hub');
       await p.waitForSelector('a.tile');

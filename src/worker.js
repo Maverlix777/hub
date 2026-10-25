@@ -1,6 +1,7 @@
 import { Buffer } from 'node:buffer';
-import { buildBoard } from './board.js';
+import { loadBoardSources } from './board-sources.js';
 import { readTelemetry } from './telemetry.js';
+import { validatePayload, existingSubmission, enqueue, listSubmissions } from './outbox.js';
 import {
   generateAuthenticationOptions,
   generateRegistrationOptions,
@@ -36,38 +37,55 @@ const APP_ACCESS = Object.freeze({
 
 // Board dashboard: owner only. Not an entitlement tier (open registration hands out 'free' to anyone);
 // access needs the session username to be in env.BOARD_OWNER_USERNAME (comma-separated list). Unset means nobody.
-function isBoardOwner(session, env) {
+// Explicit author mappings bind a GitHub identity to an existing stable Hub account,
+// never to a username alone (registration is open). No Danya account is inferred.
+export function boardAuthor(session, env) {
+  if (!session || typeof session.id !== 'string' || typeof session.username !== 'string') return null;
+  if (env.BOARD_AUTHORS_JSON !== undefined) {
+    let authors;
+    try { authors = JSON.parse(env.BOARD_AUTHORS_JSON); } catch { return null; }
+    if (!Array.isArray(authors) || authors.length > 2 || authors.some((author) => !author || Array.isArray(author)
+      || Object.keys(author).length !== 3 || !['hubUserId', 'hubUsername', 'githubLogin'].every((key) => Object.hasOwn(author, key))
+      || typeof author.hubUserId !== 'string' || !/^[A-Za-z0-9_-]{1,100}$/.test(author.hubUserId)
+      || typeof author.hubUsername !== 'string' || !/^[a-z0-9][a-z0-9_.-]{2,31}$/.test(author.hubUsername)
+      || typeof author.githubLogin !== 'string' || !/^[A-Za-z0-9](?:[A-Za-z0-9-]{0,37}[A-Za-z0-9])?$/.test(author.githubLogin))) return null;
+    for (const field of ['hubUserId', 'hubUsername', 'githubLogin']) {
+      if (new Set(authors.map((author) => author[field].toLowerCase())).size !== authors.length) return null;
+    }
+    const mapped = authors.find((author) => author.hubUserId === session.id || author.hubUsername === session.username.toLowerCase());
+    return mapped && mapped.hubUserId === session.id && mapped.hubUsername === session.username.toLowerCase() ? { ...mapped } : null;
+  }
   const owners = typeof env.BOARD_OWNER_USERNAME === 'string'
     ? env.BOARD_OWNER_USERNAME.split(',').map((u) => u.trim().toLowerCase()).filter(Boolean)
     : [];
-  return Boolean(session && owners.includes(session.username.toLowerCase()));
+  return owners.includes(session.username.toLowerCase())
+    ? { hubUserId: session.id, hubUsername: session.username.toLowerCase(), githubLogin: null } : null;
 }
 
-const BOARD_REPO = /^[A-Za-z0-9_.-]+\/[A-Za-z0-9_.-]+$/;
-const BOARD_PATH = /^[A-Za-z0-9_./-]+\.md$/;
-const BOARD_DEFAULT_PATHS = 'proposals/ai-factory-jobforge/BOARD.md,proposals/site-kolobovdjp/BOARD.md';
+function isBoardOwner(session, env) {
+  return Boolean(boardAuthor(session, env));
+}
+
+function issuesDeliveryEnabled(env) {
+  return env.HUB_ISSUES_ENABLED === 'true' && typeof env.HUB_ISSUES_GITHUB_TOKEN === 'string'
+    && env.HUB_ISSUES_GITHUB_TOKEN.length >= 20;
+}
+
+function scheduleIssueDelivery(db, env, item, ctx) {
+  if (!item || item.status === 'synced' || item.status === 'conflict' || !issuesDeliveryEnabled(env) || !ctx?.waitUntil) return;
+  // Background delivery starts only after the durable INSERT or existing-item read.
+  // No second scheduler, direct session messaging, or browser credential is involved.
+  ctx.waitUntil(import('./issues-delivery.js').then(({ flushIssueDelivery }) => flushIssueDelivery(db, env, item.id)).catch(() => {
+    // Transport journals its attempt before POST; never surface raw exception/secret text.
+    // An unavailable transport leaves saved/pending visible for an explicit safe retry.
+  }));
+}
 
 // Reads the private board files at request time; nothing is stored here. Token never leaves the Worker.
 async function loadBoard(env, fetchImpl = fetch) {
-  const repo = env.BOARD_REPO || 'Maverlix777/agent-handoffs';
-  const paths = (env.BOARD_PATHS || BOARD_DEFAULT_PATHS).split(',').map((p) => p.trim()).filter(Boolean);
-  if (!env.BOARD_GITHUB_TOKEN || !BOARD_REPO.test(repo) || !paths.length || !paths.every((p) => BOARD_PATH.test(p) && !p.includes('..'))) {
-    return { error: 'board_unavailable' };
-  }
-  const sources = [];
-  for (const path of paths) {
-    const response = await fetchImpl(`https://api.github.com/repos/${repo}/contents/${path.split('/').map(encodeURIComponent).join('/')}`, {
-      headers: {
-        accept: 'application/vnd.github.raw+json',
-        authorization: `Bearer ${env.BOARD_GITHUB_TOKEN}`,
-        'user-agent': 'hub-board',
-        'x-github-api-version': '2022-11-28',
-      },
-    });
-    if (!response.ok) return { error: 'board_unavailable' };
-    sources.push({ name: path.split('/').slice(-2, -1)[0] || path, text: await response.text() });
-  }
-  return { board: { ...buildBoard(sources), telemetry: await readTelemetry(env, fetchImpl) } };
+  const result = await loadBoardSources(env, fetchImpl);
+  if (result.error) return result;
+  return { board: { ...result.board, telemetry: await readTelemetry(env, fetchImpl) } };
 }
 
 function appAllowed(appId, tier) {
@@ -382,7 +400,7 @@ function responseWithCookie(response, cookie) {
   return new Response(response.body, { status: response.status, statusText: response.statusText, headers });
 }
 
-async function api(request, env, path, session, webauthn, now, canonicalOrigin, trustedClientIP = null) {
+async function api(request, env, path, session, webauthn, now, canonicalOrigin, trustedClientIP = null, ctx = null) {
   const db = env.HUB_DB;
   if (request.method === 'GET' && path === '/hub/api/session') {
     return session
@@ -399,6 +417,49 @@ async function api(request, env, path, session, webauthn, now, canonicalOrigin, 
     if (!isBoardOwner(session, env)) return json({ error: 'forbidden' }, 403);
     const result = await loadBoard(env);
     return result.error ? json({ error: result.error }, 503) : json(result.board);
+  }
+  if (path === '/hub/api/outbox') {
+    if (!session) return json({ error: 'unauthorized' }, 401);
+    if (!isBoardOwner(session, env)) return json({ error: 'forbidden' }, 403);
+    try {
+      if (request.method === 'GET') {
+        const page = await listSubmissions(db, session.id, new URL(request.url).searchParams.get('before'));
+        return json({ ...page, delivery: { status: issuesDeliveryEnabled(env) ? 'enabled' : 'not_configured' } });
+      }
+      if (request.method !== 'POST') return json({ error: 'method_not_allowed' }, 405, { allow: 'GET, POST' });
+      if (request.headers.get('X-Hub-Request') !== '1'
+        || (request.headers.has('sec-fetch-site') && request.headers.get('sec-fetch-site') !== 'same-origin')) {
+        return json({ error: 'forbidden_request' }, 403);
+      }
+      const payload = validatePayload(await readJson(request));
+      if (!payload) return json({ error: 'invalid_payload' }, 400);
+      if (!rateLimitKeyReady(env) || !(trustedClientIP || request.headers.get('CF-Connecting-IP'))) {
+        return json({ error: 'outbox_unavailable' }, 503);
+      }
+      if (!await applyRateLimit(db, env, request, 'owner-outbox', session.id, 20, now, trustedClientIP)) {
+        return json({ error: 'rate_limited' }, 429, { 'retry-after': '60' });
+      }
+      const existing = await existingSubmission(db, session.id, payload);
+      if (existing) {
+        if (!existing.error) scheduleIssueDelivery(db, env, existing.item, ctx);
+        return json(existing, existing.error ? 409 : 200);
+      }
+      if (payload.target) {
+        const result = await loadBoard(env);
+        if (result.error) return json({ error: result.error }, 503);
+        const source = result.board.sources.find((entry) => entry.path === payload.target.sourcePath);
+        if (source?.status === 'error') return json({ error: 'board_unavailable' }, 503);
+        const target = result.board.cards.find((card) => card.id === payload.target.taskId && card.sourcePath === payload.target.sourcePath);
+        if (!target) return json({ error: 'invalid_target' }, 400);
+        if (target.sourceRevision !== payload.target.revision) return json({ error: 'target_conflict' }, 409);
+      }
+      const saved = await enqueue(db, session.id, payload, now, boardAuthor(session, env));
+      if (!saved.error) scheduleIssueDelivery(db, env, saved.item, ctx);
+      return json(saved, saved.error ? 409 : saved.duplicate ? 200 : 201);
+    } catch {
+      // A missing unapplied migration and a transient storage failure are not an empty queue.
+      return json({ error: 'outbox_unavailable' }, 503);
+    }
   }
   // Origin of POST requests is already checked once in fetch().
 
@@ -549,7 +610,7 @@ export function createWorker(webauthn = {
   generateRegistrationOptions, generateAuthenticationOptions, verifyRegistrationResponse, verifyAuthenticationResponse,
 }) {
   const core = {
-    async fetch(request, env) {
+    async fetch(request, env, ctx) {
       const now = Date.now();
       const canonicalOrigin = env.CANONICAL_ORIGIN || 'https://hub.kolobovdjp.org';
       const receivedUrl = new URL(request.url);
@@ -612,7 +673,7 @@ export function createWorker(webauthn = {
       }
       const session = await loadSession(request, env, now);
       if (pathname.startsWith('/hub/api/')) {
-        return api(request, env, pathname, session, webauthn, now, canonicalOrigin, trustedClientIP);
+        return api(request, env, pathname, session, webauthn, now, canonicalOrigin, trustedClientIP, ctx);
       }
       if (pathname === '/hub/login' && ['GET', 'HEAD'].includes(request.method)) return Response.redirect(`${canonicalOrigin}/hub/login/`, 308);
       if (isPublicLoginAsset(pathname) && ['GET', 'HEAD'].includes(request.method)) {
@@ -631,10 +692,10 @@ export function createWorker(webauthn = {
     },
   };
   return {
-    async fetch(request, env) {
+    async fetch(request, env, ctx) {
       let response;
       try {
-        response = await core.fetch(request, env);
+        response = await core.fetch(request, env, ctx);
       } catch {
         // No exception text or stack in the response or logs.
         response = json({ error: 'internal_error' }, 500);
