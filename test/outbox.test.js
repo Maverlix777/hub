@@ -196,6 +196,29 @@ test('two explicitly mapped authors can submit; username-only impersonation and 
   assert.equal(ownerPage.items.length, 1); assert.equal(ownerPage.items[0].agentAck, null); assert.equal(ownerPage.items[0].agentResult, null);
 });
 
+test('explicit mapping admits three distinct Hub accounts for two principals, never a fourth account or third principal', async (t) => {
+  const f = fixture(); t.after(() => f.sqlite.close());
+  const cookies = [await f.session('owner'), await f.session('ownerwin'), await f.session('danya')];
+  const authors = [
+    { hubUserId: 'owner', hubUsername: 'owner', githubLogin: 'synthetic-owner' },
+    { hubUserId: 'ownerwin', hubUsername: 'ownerwin', githubLogin: 'Synthetic-Owner' },
+    { hubUserId: 'danya', hubUsername: 'danya', githubLogin: 'synthetic-colleague' },
+  ];
+  const submit = (cookie, mapping) => f.request('POST', message(), cookie, {}, undefined, { BOARD_AUTHORS_JSON: JSON.stringify(mapping) });
+  for (let index = 0; index < cookies.length; index++) {
+    const response = await submit(cookies[index], authors);
+    assert.equal(response.status, 201); assert.deepEqual((await response.json()).item.author, authors[index]);
+  }
+  const fourth = [...authors, { hubUserId: 'extra', hubUsername: 'extra', githubLogin: 'synthetic-owner' }];
+  assert.equal((await submit(cookies[0], fourth)).status, 403);
+  const thirdPrincipal = authors.map((author, index) => index === 1 ? { ...author, githubLogin: 'synthetic-third' } : author);
+  assert.equal((await submit(cookies[0], thirdPrincipal)).status, 403);
+  const duplicateId = authors.map((author, index) => index === 1 ? { ...author, hubUserId: 'owner' } : author);
+  assert.equal((await submit(cookies[0], duplicateId)).status, 403);
+  const duplicateUsername = authors.map((author, index) => index === 1 ? { ...author, hubUsername: 'owner' } : author);
+  assert.equal((await submit(cookies[0], duplicateUsername)).status, 403);
+});
+
 const intentFor = (item, kind = 'issue') => {
   const payloadHash = 'a'.repeat(64), marker = `<!-- hub-outbox:${item.id}:${payloadHash} -->`;
   return { schemaVersion: 1, kind, issueNumber: kind === 'issue' ? null : 7, marker, payloadHash,

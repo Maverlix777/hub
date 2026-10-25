@@ -8,7 +8,7 @@ The Worker reuses HUB_DB, existing passkey sessions, CSRF protection and HMAC ra
 
 ## Author authorization
 
-Optional server configuration BOARD_AUTHORS_JSON is an array of at most two objects with exactly {hubUserId,hubUsername,githubLogin}. It binds a GitHub identity to an existing stable Hub user ID and exact normalized username. Username registration alone cannot acquire permission. Duplicate identities, malformed configuration and mismatched IDs fail closed.
+Optional server configuration BOARD_AUTHORS_JSON is an array of at most three objects with exactly {hubUserId,hubUsername,githubLogin}, representing at most two distinct GitHub principals (case-insensitive). One person may explicitly map two existing Hub accounts. Hub IDs and usernames must each remain unique. It binds a GitHub identity to an existing stable Hub user ID and exact normalized username. Username registration alone cannot acquire permission. Duplicate Hub identities, a fourth account, a third GitHub principal, malformed configuration and mismatched IDs fail closed. No real account mapping is inferred or activated by these limits.
 
 When this explicit mapping exists it is authoritative: stale BOARD_OWNER_USERNAME names cannot gain access. Only when mapping is absent does the existing owner allowlist retain prior behavior, with githubLogin:null honestly indicating no GitHub attribution mapping. The colleague's real Hub account mapping is unknown and is not guessed or activated.
 
