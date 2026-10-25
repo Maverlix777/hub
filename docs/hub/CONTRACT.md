@@ -47,3 +47,13 @@ Show last successful check separately from last attempted check where available.
 ## Test boundaries
 
 Unit tests validate normalization, payload constraints, idempotency, conflicts, and routing. Local integration tests validate real local persistence and request boundaries. Browser tests validate the rendered interaction and reload behavior. Mocked GitHub responses validate adapter logic only. A live delivery claim requires a safe authorized synthetic write and verified readback on the actual target, without publishing private data. Keep each evidence class labeled separately.
+
+## Application and download freshness boundary
+
+Inventory all current Hub application and download entries, not only board cards. Each audit record needs a stable entry identifier, the displayed URL, canonical repository and release/tag/commit/asset identity when resolvable, source URL, verification timestamp, availability result, and verification status. Record expected and measured hash plus algorithm when safely available; explicitly mark an absent or unverified hash. Keep credentials and private URLs containing credentials out of records and browser payloads.
+
+Use a documented suitability rule for each distributable: the latest verified artifact appropriate to that application's distribution channel and access level. Newer branch HEAD, draft/prerelease metadata, or an untested build must not silently replace an existing suitable release. If no suitable current artifact is verifiable, preserve the last verified reference and label the unresolved condition. Statuses distinguish current/verified, stale, broken, and unknown; a private asset unavailable to the auditor is not automatically broken. Always retain source and last verification time.
+
+The audit is read-only and is consumed through the existing heartbeat after its integration scope is established. It must not create another schedule, mutate releases/tags/assets, publish private artifacts, or bypass payment/entitlement checks. Public output must omit private repository contents and credential-bearing URLs. Link freshness does not grant access to an otherwise restricted artifact.
+
+Corrections are delivered as scoped code/data changes with review and required CI. Relevant ready PRs may be merged under the owner's explicit freshness instruction; unrelated branches, unresolved blockers, and incomplete outbox/live-transport work are not mass-merged. Merge readiness, artifact verification, and production activation remain separate states. Record the exact reviewed commit and merge evidence without claiming the running site updated until activation is authorized and verified.
