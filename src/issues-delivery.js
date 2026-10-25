@@ -1,4 +1,5 @@
 // Canonical GitHub Issues transport. Server-only token; durable intent before every non-idempotent POST.
+import { ADDRESSEES } from './outbox.js';
 const REPO = 'Maverlix777/agent-handoffs';
 const API = `https://api.github.com/repos/${REPO}`;
 const WEB = `https://github.com/${REPO}/issues/`;
@@ -32,6 +33,13 @@ function trustedIssue(item, env) {
   return matches[0].issueNumber;
 }
 
+/** Labels for a new issue. Idea and worker labels never mix; unknown addressee throws. */
+export function issueLabels(item) {
+  if (!item.addressee) return ['idea'];
+  requireThat(ADDRESSEES.includes(item.addressee) && item.kind === 'message');
+  return [`worker:${item.addressee}`, 'cloud:ready'];
+}
+
 export async function makeIssueIntent(item, env) {
   requireThat(item && /^[a-f0-9-]{36}$/i.test(item.id) && typeof item.text === 'string' && item.text.trim() && item.text.length <= 8000);
   const author = item.author;
@@ -39,7 +47,7 @@ export async function makeIssueIntent(item, env) {
     && typeof author.hubUsername === 'string' && /^[A-Za-z0-9_.-]{1,80}$/.test(author.hubUsername)
     && (author.githubLogin === null || (typeof author.githubLogin === 'string' && /^[A-Za-z0-9][A-Za-z0-9-]{0,38}$/.test(author.githubLogin))));
   const issueNumber = trustedIssue(item, env);
-  const payloadHash = await sha256(JSON.stringify({ id: item.id, kind: item.kind, text: item.text, target: item.target, author, issueNumber }));
+  const payloadHash = await sha256(JSON.stringify({ id: item.id, kind: item.kind, text: item.text, target: item.target, author, issueNumber, ...(item.addressee ? { addressee: item.addressee } : {}) }));
   const marker = `<!-- hub-outbox:${item.id}:${payloadHash} -->`;
   const fence = '`'.repeat(Math.max(3, ...((item.text.match(/`+/g) || []).map(x => x.length + 1))));
   const body = `${marker}\nHub author: ${author.hubUsername}\nGitHub attribution: ${author.githubLogin || 'not mapped'}\n`
@@ -165,7 +173,7 @@ export async function flushIssueDelivery(db, env, itemId, options = {}) {
     const intent = item.deliveryIntent || expected;
     requireThat(JSON.stringify(intent) === JSON.stringify(expected), 'delivery_conflict');
     if (intent.issueNumber) validateIssue(await api(`/issues/${intent.issueNumber}`), intent.issueNumber);
-    else if (!attempted) requireThat((await api('/labels/idea')).name === 'idea');
+    else if (!attempted) for (const name of issueLabels(item)) requireThat((await api(`/labels/${encodeURIComponent(name)}`)).name === name);
     let readback;
     if (attempted) {
       readback = await reconcile(api, intent);
@@ -174,7 +182,7 @@ export async function flushIssueDelivery(db, env, itemId, options = {}) {
       requireThat((await store.beginDeliveryAttempt(db, item.id, attempt, intent, now())).applied);
       attempted = true;
       const created = await api(intent.kind === 'issue' ? '/issues' : `/issues/${intent.issueNumber}/comments`,
-        intent.kind === 'issue' ? { title: intent.title, body: intent.body, labels: ['idea'] } : { body: intent.body });
+        intent.kind === 'issue' ? { title: intent.title, body: intent.body, labels: issueLabels(item) } : { body: intent.body });
       // Validate returned destination before constructing the independent readback URL.
       verifiedReceipt(created, intent, now());
       readback = await api(intent.kind === 'issue' ? `/issues/${created.number}` : `/issues/comments/${created.id}`);

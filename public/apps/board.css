@@ -81,3 +81,5 @@ body.modal-open { overflow:hidden; }
 .snezhana-body textarea { min-height:70px; }
 @media(max-width:650px) { .snezhana-panel { right:8px; bottom:8px; width:calc(100vw - 16px); } .board-page { padding-bottom:90px; } }
 @media(prefers-reduced-motion:no-preference) { .snezhana-head .avatar { animation:snz-bob 3s ease-in-out infinite; } @keyframes snz-bob { 50% { transform:translateY(-2px); } } }
+body:has(#snezhana-body:not([hidden])) .board-page { padding-bottom:420px; }
+body:has(#snezhana-body[hidden]) .board-page { padding-bottom:96px; }

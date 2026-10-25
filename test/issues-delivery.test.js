@@ -1,6 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { flushIssueDelivery, makeIssueIntent } from '../src/issues-delivery.js';
+import { flushIssueDelivery, makeIssueIntent, issueLabels } from '../src/issues-delivery.js';
 import { DatabaseSync } from 'node:sqlite';
 import { readFileSync } from 'node:fs';
 import * as nativeStore from '../src/outbox.js';
@@ -387,4 +387,29 @@ test('SQLite diagnostic allowlist accepts only closed subtypes and still rejects
       { status: 'error', receipt: null, error: code }, 1000), /invalid_delivery_result/);
   }
   assert.equal((await nativeStore.listSubmissions(f.db, 'local-user')).items[0].error, 'delivery_unavailable_metadata');
+});
+
+test('T4: addressed message gets [worker:<x>, cloud:ready] and never idea', async () => {
+  const item = { ...message, addressee: 'codex' };
+  const h = harness(item, { handler(url) {
+    if (url === `${API}/labels/worker%3Acodex`) return json({ name: 'worker:codex' });
+    if (url === `${API}/labels/cloud%3Aready`) return json({ name: 'cloud:ready' });
+  } });
+  const result = await h.run(); assert.equal(result.status, 'synced');
+  const labels = JSON.parse(h.state.calls.find(call => call.init.method === 'POST').init.body).labels;
+  assert.deepEqual(labels, ['worker:codex', 'cloud:ready']);
+  assert.equal(labels.includes('idea'), false);
+});
+
+test('T4: unknown addressee is refused before any POST', async () => {
+  const h = harness({ ...message, addressee: 'root' });
+  const result = await h.run(); assert.equal(result.status, 'error'); assert.equal(h.state.posts, 0);
+  assert.throws(() => issueLabels({ ...message, addressee: 'idea' }));
+  assert.throws(() => issueLabels({ ...answer, addressee: 'codex' }));
+  assert.deepEqual(issueLabels(message), ['idea']);
+});
+
+test('T4: addressee changes the intent hash, plain ideas keep the old hash input', async () => {
+  const a = await makeIssueIntent(message, env); const b = await makeIssueIntent({ ...message, addressee: 'claude' }, env);
+  assert.notEqual(a.payloadHash, b.payloadHash);
 });

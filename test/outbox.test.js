@@ -407,3 +407,28 @@ test('same-key pending retry after post-intent crash reconciles existing remote 
   assert.equal(after.length, 1); assert.equal(after[0].status, 'synced');
   assert.equal(transport.state.posts, 0); assert.equal(after[0].receipt.issueNumber, 7);
 });
+
+test('T4: validatePayload addressee allowlist', () => {
+  for (const to of ['claude', 'codex', 'snezhana', 'pedro', 'mazila']) assert.equal(validatePayload(message({ addressee: to })).addressee, to);
+  assert.equal('addressee' in validatePayload(message({ addressee: 'idea' })), false, 'idea keeps no worker label');
+  assert.equal('addressee' in validatePayload(message()), false);
+  for (const bad of ['root', 'worker:claude', 'idea,claude', '', 'CLAUDE', 5, ['claude'], {}]) assert.equal(validatePayload(message({ addressee: bad })), null, String(bad));
+  const target = { sourcePath: 'a/b.md', taskId: 'T-1', revision: 'a'.repeat(40) };
+  assert.equal(validatePayload({ ...message({ kind: 'answer', target }), addressee: 'claude' }), null, 'answers cannot be addressed');
+});
+
+test('T4: HTTP outbox stores a valid addressee and rejects an unknown one', async () => {
+  const { env, session, request } = fixture();
+  const cookie = await session('owner');
+  const key = crypto.randomUUID();
+  const ok = await request('POST', { idempotencyKey: key, kind: 'message', text: 'hi', addressee: 'pedro' }, cookie);
+  assert.equal(ok.status, 201);
+  assert.equal((await ok.json()).item.addressee, 'pedro');
+  const again = await request('POST', { idempotencyKey: key, kind: 'message', text: 'hi', addressee: 'pedro' }, cookie);
+  assert.equal(again.status, 200);
+  const conflict = await request('POST', { idempotencyKey: key, kind: 'message', text: 'hi', addressee: 'codex' }, cookie);
+  assert.equal(conflict.status, 409);
+  const bad = await request('POST', { idempotencyKey: crypto.randomUUID(), kind: 'message', text: 'hi', addressee: 'root' }, cookie);
+  assert.equal(bad.status, 400);
+  assert.ok(env);
+});
