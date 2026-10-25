@@ -163,7 +163,7 @@ export async function flushIssueDelivery(db, env, itemId, options = {}) {
     return { status: result.applied ? 'synced' : 'conflict', receipt: result.applied ? receipt : null };
   } catch (error) {
     const code = error.message === 'delivery_conflict' ? 'delivery_conflict' : attempted ? 'delivery_uncertain' : 'delivery_unavailable';
-    if (attempted) await store.markDeliveryUncertain(db, item.id, attempt, now());
+    if (attempted && code !== 'delivery_conflict') await store.markDeliveryUncertain(db, item.id, attempt, now());
     else await store.finishDelivery(db, item.id, attempt, { status: code === 'delivery_conflict' ? 'conflict' : 'error', receipt: null, error: code }, now());
     return { status: code === 'delivery_conflict' ? 'conflict' : 'error', error: code };
   }

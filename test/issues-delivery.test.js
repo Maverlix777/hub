@@ -204,6 +204,23 @@ test('actual SQLite uncertain intent survives lease expiry and only reconciles r
   assert.equal((await nativeStore.listSubmissions(f.db, 'local-user')).items[0].receipt.commentId, 101);
 });
 
+test('actual SQLite definitive readback conflict is terminal and retains intent without resend after lease', async t => {
+  const f = sqliteFixture(); t.after(() => f.sqlite.close());
+  const saved = await nativeStore.enqueue(f.db, 'local-user', { idempotencyKey: crypto.randomUUID(), kind: 'message', text: message.text, target: null }, 1000, message.author);
+  const h = harness(saved.item, { handler(url, init, state) {
+    if (init.method === 'POST') state.intent = JSON.parse(f.sqlite.prepare('SELECT delivery_intent_json FROM owner_outbox WHERE id=?').get(saved.item.id).delivery_intent_json);
+    if (url === `${API}/issues/43`) return json(issue(43, state.intent.body + '\nChanged by another writer'));
+  } });
+  const run = now => flushIssueDelivery(f.db, env, saved.item.id, { fetchImpl: h.fetchImpl, store: nativeStore, now: () => now });
+  const result = await run(1000);
+  assert.equal(result.status, 'conflict'); assert.equal(result.error, 'delivery_conflict');
+  const listed = (await nativeStore.listSubmissions(f.db, 'local-user')).items[0];
+  assert.equal(listed.status, 'conflict'); assert.equal(listed.error, 'delivery_conflict'); assert.equal(listed.receipt, null);
+  const row = f.sqlite.prepare('SELECT delivery_intent_json FROM owner_outbox WHERE id=?').get(saved.item.id);
+  assert.ok(JSON.parse(row.delivery_intent_json).marker);
+  assert.equal((await run(100000)).status, 'not_claimed'); assert.equal(h.state.posts, 1);
+});
+
 test('shared wall-clock budget stops before POST after slow preflight requests', async () => {
   let elapsed = 0;
   const h = harness(message, { handler() { elapsed += 13000; } });
