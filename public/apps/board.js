@@ -448,7 +448,7 @@
   setupForm($('snezhana-form'),'message',null,'snezhana');
   function setPanel(open) { $('snezhana-body').hidden = !open; $('snezhana-toggle').setAttribute('aria-expanded', String(open)); try { localStorage.setItem('hub.board.snezhana', open ? '1' : '0'); } catch { /* ignore */ } }
   $('snezhana-toggle').addEventListener('click',() => setPanel($('snezhana-body').hidden));
-  setPanel((() => { try { return localStorage.getItem('hub.board.snezhana') !== '0'; } catch { return true; } })());
+  setPanel((() => { try { return localStorage.getItem('hub.board.snezhana') === '1'; } catch { return false; } })());
   window.setInterval(() => { if (!document.hidden) load(); },60000);
   document.addEventListener('visibilitychange',() => { if (!document.hidden) load(); });
   load();

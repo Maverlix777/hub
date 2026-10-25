@@ -77,9 +77,9 @@ body.modal-open { overflow:hidden; }
 .snezhana-panel { position:fixed; right:16px; bottom:16px; z-index:20; width:min(320px,calc(100vw - 32px)); background:#fff; border:1px solid var(--line); border-radius:16px; box-shadow:0 10px 36px #14233b30; }
 .snezhana-head { display:flex; align-items:center; gap:10px; width:100%; padding:10px 14px; background:none; border:0; font:inherit; cursor:pointer; text-align:left; color:var(--fg); }
 .snezhana-name { font-weight:700; flex:1; } .snezhana-hint { font-size:12px; color:var(--muted); }
-.snezhana-body { padding:0 14px 14px; } .snezhana-body[hidden] { display:none; }
+.snezhana-panel:has(#snezhana-body[hidden]) { width:auto; border-radius:999px; } .snezhana-body { padding:0 14px 14px; } .snezhana-body[hidden] { display:none; }
 .snezhana-body textarea { min-height:70px; }
-@media(max-width:650px) { .snezhana-panel { right:8px; bottom:8px; width:calc(100vw - 16px); } .board-page { padding-bottom:90px; } }
+@media(max-width:650px) { .snezhana-panel { right:8px; bottom:8px; width:calc(100vw - 16px); } .snezhana-panel:has(#snezhana-body[hidden]) { width:auto; } .board-page { padding-bottom:90px; } }
 @media(prefers-reduced-motion:no-preference) { .snezhana-head .avatar { animation:snz-bob 3s ease-in-out infinite; } @keyframes snz-bob { 50% { transform:translateY(-2px); } } }
 body:has(#snezhana-body:not([hidden])) .board-page { padding-bottom:420px; }
 body:has(#snezhana-body[hidden]) .board-page { padding-bottom:96px; }
