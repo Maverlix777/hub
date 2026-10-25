@@ -24,6 +24,8 @@ jobs:
         run: npm audit --audit-level=high
       - name: Test WebAuthn and session worker
         run: npm test
+      - name: Check GitHub transports in the actual Worker runtime
+        run: node --test tests/workerd-redirect.cjs
       - name: Dry-run Worker bundle (no Cloudflare login)
         run: npx wrangler deploy --dry-run --outdir "$RUNNER_TEMP/wrangler-dry"
       - name: Build allowlisted public site
