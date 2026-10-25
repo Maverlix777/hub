@@ -41,6 +41,9 @@ function validateRemote(remote, route, immutable = false) {
   requireThat(remote && remote.private === true && remote.visibility === 'private');
   requireThat(remote.repository === route.repository && remote.path === route.path && remote.branch === route.branch);
   requireThat(SHA.test(remote.sha) && typeof remote.content === 'string' && Buffer.byteLength(remote.content) <= MAX_BYTES);
+  const bytes = Buffer.from(remote.content, 'utf8');
+  const blob = createHash('sha1').update(`blob ${bytes.length}\0`).update(bytes).digest('hex');
+  requireThat(blob === remote.sha, 'delivery_conflict');
   if (immutable) requireThat(SHA.test(remote.commit) && remote.ref === remote.commit, 'immutable_readback_required');
 }
 

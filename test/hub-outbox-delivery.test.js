@@ -3,10 +3,13 @@ import assert from 'node:assert/strict';
 import { mkdtempSync, writeFileSync, readFileSync, rmSync } from 'node:fs';
 import { join } from 'node:path';
 import { spawnSync } from 'node:child_process';
+import { createHash } from 'node:crypto';
 import { prepareDelivery, reconcileDelivery } from '../tools/hub-outbox-delivery.mjs';
 
 const id = '8ecf3881-954b-40a2-9a1b-79a4c1277d38';
-const oldSHA = 'a'.repeat(40);
+const blob = content => createHash('sha1').update(`blob ${Buffer.byteLength(content)}\0`).update(content).digest('hex');
+const baseline = '| HUB-1 | Waiting for owner |\n';
+const oldSHA = blob(baseline);
 const newSHA = 'b'.repeat(40);
 const commit = 'c'.repeat(40);
 const route = { repository: 'Maverlix777/agent-handoffs', path: 'reports/synthetic-board.md', branch: 'main',
@@ -14,8 +17,8 @@ const route = { repository: 'Maverlix777/agent-handoffs', path: 'reports/synthet
 const item = { id, idempotencyKey: 'fe002bf4-cf52-42c1-881a-dbf71bb8d7b6', kind: 'answer', text: 'Synthetic owner answer.',
   target: { sourcePath: route.path, taskId: route.taskId, revision: oldSHA }, status: 'pending', version: 1 };
 const remote = { repository: route.repository, path: route.path, branch: 'main', private: true, visibility: 'private',
-  sha: oldSHA, content: '| HUB-1 | Waiting for owner |\n' };
-const immutable = proposal => ({ ...remote, sha: newSHA, content: proposal.request.content, commit, ref: commit });
+  sha: oldSHA, content: baseline };
+const immutable = proposal => ({ ...remote, sha: blob(proposal.request.content), content: proposal.request.content, commit, ref: commit });
 
 test('exact target creates CAS proposal preserving existing content, then immutable readback receipt', () => {
   const result = prepareDelivery(item, route, remote);
@@ -28,7 +31,7 @@ test('exact target creates CAS proposal preserving existing content, then immuta
   assert.equal(done.deliveryResult.status, 'synced');
   assert.equal(done.deliveryResult.receipt.commit, commit);
   assert.equal(done.deliveryResult.expectedVersion, 1);
-  assert.equal(done.intent.verifiedBlob, newSHA);
+  assert.equal(done.intent.verifiedBlob, blob(result.request.content));
 });
 
 test('duplicate after verified delivery produces no second write', () => {
@@ -84,7 +87,8 @@ test('wrong file/repository/task/adapter and public destinations are rejected', 
 
 test('missing task refuses append; prefix collision is not correct task', () => {
   for (const content of ['No task here', '| HUB-100 | waiting |']) {
-    assert.throws(() => prepareDelivery(item, route, { ...remote, content }), /task_not_found/);
+    const sha = blob(content);
+    assert.throws(() => prepareDelivery({ ...item, target: { ...item.target, revision: sha } }, route, { ...remote, sha, content }), /task_not_found/);
   }
 });
 
@@ -115,6 +119,12 @@ test('main readback or mismatched immutable commit cannot claim synced', () => {
   const proposal = prepareDelivery(item, route, remote);
   assert.throws(() => reconcileDelivery(proposal.intent, { ...immutable(proposal), ref: 'main' }), /immutable_readback_required/);
   assert.throws(() => reconcileDelivery(proposal.intent, { ...immutable(proposal), content: proposal.request.content + 'extra' }), /delivery_conflict/);
+});
+
+test('content must match the Git blob SHA before preparation or reconciliation', () => {
+  assert.throws(() => prepareDelivery(item, route, { ...remote, content: baseline + 'unexpected edit' }), /delivery_conflict/);
+  const proposal = prepareDelivery(item, route, remote);
+  assert.throws(() => reconcileDelivery(proposal.intent, { ...immutable(proposal), sha: oldSHA }), /delivery_conflict/);
 });
 
 test('CLI persists intent before giving proposal; repeated prepare refuses; reconcile survives process restart', () => {

@@ -50,7 +50,7 @@ Trusted route (no production route is installed by this change):
 }
 ```
 
-Remote read is `{repository,path,branch,private:true,visibility:"private",sha,content}`. An immutable readback additionally contains `{commit,ref}` with both set to the same 40-character commit SHA. These values must come from actual connector metadata and reads, not be inferred from an HTTP success status.
+Remote read is `{repository,path,branch,private:true,visibility:"private",sha,content}`. The helper independently computes Git's blob SHA-1 over the exact UTF-8 content and refuses a mismatch. An immutable readback additionally contains `{commit,ref}` with both set to the same 40-character commit SHA. These values must come from actual connector metadata and reads, not be inferred from an HTTP success status.
 
 ```sh
 node tools/hub-outbox-delivery.mjs prepare /private/state/item-intent.json item.json trusted-route.json remote.json
