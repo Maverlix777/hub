@@ -5,6 +5,18 @@ const WEB = `https://github.com/${REPO}/issues/`;
 const positive = value => Number.isSafeInteger(value) && value > 0;
 const requireThat = (test, code = 'delivery_unavailable') => { if (!test) throw new Error(code); };
 
+// Only locally constructed diagnostics can become persisted preflight subtypes.
+// Never persist an upstream error message, response body, URL or credential.
+class PreflightFailure extends Error {
+  constructor(subtype) { super(`delivery_unavailable_${subtype}`); }
+}
+const unavailable = subtype => new PreflightFailure(subtype);
+function httpFailure(status) {
+  const subtype = [401, 403, 404, 429].includes(status) ? `github_${status}`
+    : status >= 500 && status <= 599 ? 'github_5xx' : 'github_other_http';
+  return unavailable(subtype);
+}
+
 async function sha256(text) {
   return [...new Uint8Array(await crypto.subtle.digest('SHA-256', new TextEncoder().encode(text)))].map(x => x.toString(16).padStart(2, '0')).join('');
 }
@@ -59,25 +71,29 @@ function client(env, fetchImpl, clock, deadline) {
   return async (path, body) => {
     requireThat(path === '' || path.startsWith('/'));
     const remaining = deadline - clock();
-    requireThat(remaining > 0);
+    if (!(remaining > 0)) throw unavailable('timeout');
     const controller = new AbortController();
     let timer;
     let reader;
     const timeout = new Promise((_, reject) => {
-      timer = setTimeout(() => { controller.abort(); reject(new Error('delivery_unavailable')); }, Math.min(10000, remaining));
+      timer = setTimeout(() => { reject(unavailable('timeout')); controller.abort(); }, Math.min(10000, remaining));
     });
     // The timer covers fetch AND every streamed body read. All requests share the same deadline.
     const bounded = async promise => {
-      const result = await Promise.race([promise, timeout]);
-      requireThat(clock() < deadline);
+      let result;
+      try { result = await Promise.race([promise, timeout]); }
+      catch (error) { throw error instanceof PreflightFailure ? error : unavailable('network'); }
+      if (!(clock() < deadline)) throw unavailable('timeout');
       return result;
     };
     try {
-      const response = await bounded(fetchImpl(`${API}${path}`, { method: body ? 'POST' : 'GET', redirect: 'error',
+      const response = await bounded(Promise.resolve().then(() => fetchImpl(`${API}${path}`, { method: body ? 'POST' : 'GET', redirect: 'error',
         signal: controller.signal, headers: { authorization: `Bearer ${env.HUB_ISSUES_GITHUB_TOKEN}`,
           accept: 'application/vnd.github+json', 'x-github-api-version': '2022-11-28', 'user-agent': 'hub-issues-outbox',
-          ...(body ? { 'content-type': 'application/json' } : {}) }, ...(body ? { body: JSON.stringify(body) } : {}) }));
-      requireThat(response.ok && response.body && typeof response.body.getReader === 'function');
+          ...(body ? { 'content-type': 'application/json' } : {}) }, ...(body ? { body: JSON.stringify(body) } : {}) })));
+      if (!response || !Number.isInteger(response.status)) throw unavailable('malformed');
+      if (!response.ok) throw httpFailure(response.status);
+      if (!response.body || typeof response.body.getReader !== 'function') throw unavailable('malformed');
       reader = response.body.getReader();
       const decoder = new TextDecoder('utf-8', { fatal: true });
       let raw = '';
@@ -86,11 +102,12 @@ function client(env, fetchImpl, clock, deadline) {
         const chunk = await bounded(reader.read());
         if (chunk.done) break;
         bytes += chunk.value.byteLength;
-        requireThat(bytes <= 1024 * 1024);
-        raw += decoder.decode(chunk.value, { stream: true });
+        if (bytes > 1024 * 1024) throw unavailable('malformed');
+        try { raw += decoder.decode(chunk.value, { stream: true }); }
+        catch { throw unavailable('malformed'); }
       }
-      raw += decoder.decode();
-      return JSON.parse(raw);
+      try { raw += decoder.decode(); return JSON.parse(raw); }
+      catch { throw unavailable('malformed'); }
     } finally {
       clearTimeout(timer);
       controller.abort();
@@ -139,7 +156,9 @@ export async function flushIssueDelivery(db, env, itemId, options = {}) {
   try {
     const api = client(env, options.fetchImpl || fetch, clock, deadline);
     const metadata = await api('');
-    requireThat(metadata.full_name === REPO && metadata.private === true && metadata.visibility === 'private' && metadata.has_issues === true);
+    if (!metadata || metadata.full_name !== REPO || metadata.private !== true || metadata.visibility !== 'private' || metadata.has_issues !== true) {
+      throw unavailable('metadata');
+    }
     const expected = await makeIssueIntent(item, env);
     const intent = item.deliveryIntent || expected;
     requireThat(JSON.stringify(intent) === JSON.stringify(expected), 'delivery_conflict');
@@ -162,7 +181,8 @@ export async function flushIssueDelivery(db, env, itemId, options = {}) {
     const result = await store.finishDelivery(db, item.id, attempt, { status: 'synced', receipt, error: null }, now());
     return { status: result.applied ? 'synced' : 'conflict', receipt: result.applied ? receipt : null };
   } catch (error) {
-    const code = error.message === 'delivery_conflict' ? 'delivery_conflict' : attempted ? 'delivery_uncertain' : 'delivery_unavailable';
+    const code = error.message === 'delivery_conflict' ? 'delivery_conflict' : attempted ? 'delivery_uncertain'
+      : error instanceof PreflightFailure ? error.message : 'delivery_unavailable';
     if (attempted && code !== 'delivery_conflict') await store.markDeliveryUncertain(db, item.id, attempt, now());
     else await store.finishDelivery(db, item.id, attempt, { status: code === 'delivery_conflict' ? 'conflict' : 'error', receipt: null, error: code }, now());
     return { status: code === 'delivery_conflict' ? 'conflict' : 'error', error: code };

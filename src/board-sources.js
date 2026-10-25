@@ -10,6 +10,14 @@ export const DEFAULT_IDEA_SOURCES = Object.freeze([
   {path: 'proposals/site-kolobovdjp/plans/2026-10-23-personal-task-dashboard.md', kind: 'idea-document', name: 'Идея личного хаба · 2026-10-23', provenance: 'proposal'},
 ]);
 const MAX_BYTES = 2 * 1024 * 1024;
+// Closed diagnostics only: never expose upstream text, response bodies or credentials.
+function httpFailure(status) {
+  if ([401, 403, 404, 429].includes(status)) return 'http_' + status;
+  return status >= 500 && status <= 599 ? 'http_5xx' : 'http_other';
+}
+class SourceReadError extends Error {
+  constructor(code) { super(); this.code = code; }
+}
 function descriptors(env) {
   const boards = (env.BOARD_PATHS || DEFAULT_BOARD_PATHS.join(',')).split(',').map(path => path.trim()).filter(Boolean).map(path => ({path, kind: 'board', name: path.split('/').slice(-2, -1)[0] || path, provenance: 'task-board'}));
   const ideas = typeof env.BOARD_IDEA_PATHS === 'string'
@@ -18,11 +26,11 @@ function descriptors(env) {
   return [...new Map([...boards, ...ideas].map(s => [s.path, s])).values()];
 }
 async function boundedText(response) {
-  if (Number(response.headers.get('content-length')) > MAX_BYTES) throw new Error('source_too_large');
+  if (Number(response.headers.get('content-length')) > MAX_BYTES) throw new SourceReadError('oversized');
   if (!response.body) return '';
   const reader = response.body.getReader(); const chunks = []; let total = 0;
   try {
-    for (;;) { const {done, value} = await reader.read(); if (done) break; total += value.byteLength; if (total > MAX_BYTES) throw new Error('source_too_large'); chunks.push(value); }
+    for (;;) { const {done, value} = await reader.read(); if (done) break; total += value.byteLength; if (total > MAX_BYTES) throw new SourceReadError('oversized'); chunks.push(value); }
   } finally { await reader.cancel().catch(() => {}); }
   return Buffer.concat(chunks).toString('utf8');
 }
@@ -36,21 +44,30 @@ export async function loadBoardSources(env, fetchImpl = fetch) {
   if (!env.BOARD_GITHUB_TOKEN || !REPO.test(repo) || !sources.length || sources.length > 20 || sources.some(s => !PATH.test(s.path) || s.path.includes('..'))) return {error: 'board_unavailable'};
   const loaded = await Promise.all(sources.map(async source => {
     const base = {...source, url: `https://github.com/${repo}/blob/main/${source.path}`};
+    const signal = AbortSignal.timeout(10000);
+    let response;
     try {
-      const response = await fetchImpl(`https://api.github.com/repos/${repo}/contents/${source.path.split('/').map(encodeURIComponent).join('/')}`, {
+      response = await fetchImpl(`https://api.github.com/repos/${repo}/contents/${source.path.split('/').map(encodeURIComponent).join('/')}`, {
         headers: {accept: 'application/vnd.github+json', authorization: `Bearer ${env.BOARD_GITHUB_TOKEN}`, 'user-agent': 'hub-board', 'x-github-api-version': '2022-11-28'},
-        redirect: 'error', signal: AbortSignal.timeout(10000),
+        redirect: 'error', signal,
       });
-      if (!response.ok) return {...base, error: response.status === 404 ? 'source_missing' : 'source_unavailable'};
+      if (response.redirected) return {...base, error: 'redirect_rejected'};
+      if (!response.ok) return {...base, error: httpFailure(response.status)};
       const raw = await boundedText(response); let text = raw; let revision;
       if (/json/i.test(response.headers.get('content-type') || '')) {
-        const data = JSON.parse(raw);
-        if (data.type !== 'file' || data.encoding !== 'base64' || typeof data.content !== 'string' || !/^[a-f0-9]{40}$/.test(data.sha || '')) throw new Error('source_invalid');
+        let data;
+        try { data = JSON.parse(raw); } catch { throw new SourceReadError('invalid_json'); }
+        if (!data || data.type !== 'file' || data.encoding !== 'base64' || typeof data.content !== 'string' || !/^[a-f0-9]{40}$/.test(data.sha || '')) throw new SourceReadError('invalid_blob');
         text = Buffer.from(data.content, 'base64').toString('utf8'); revision = data.sha;
-        if (Buffer.byteLength(text) > MAX_BYTES || await blobRevision(text) !== revision) throw new Error('source_invalid');
+        if (Buffer.byteLength(text) > MAX_BYTES) throw new SourceReadError('oversized');
+        if (await blobRevision(text) !== revision) throw new SourceReadError('invalid_blob');
       } else { revision = await blobRevision(text); }
       return {...base, text, revision};
-    } catch { return {...base, error: 'source_unavailable'}; }
+    } catch (error) {
+      const code = error instanceof SourceReadError ? error.code
+        : signal.aborted || ['TimeoutError', 'AbortError'].includes(error?.name) ? 'timeout' : 'network_error';
+      return {...base, error: code};
+    } finally { if (response?.body && !response.body.locked) await response.body.cancel().catch(() => {}); }
   }));
   const board = buildBoard(loaded);
   board.sources = board.sources.map((s, index) => ({...s, provenance: loaded[index].provenance}));

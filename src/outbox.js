@@ -3,7 +3,10 @@ const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-
 // Keep target grammar aligned with the existing-writer delivery adapter.
 const REVISION = /^[0-9a-f]{40}$/;
 const PATH = /^[a-zA-Z0-9][a-zA-Z0-9_./-]*\.md$/;
-const ERROR_CODES = new Set(['delivery_conflict', 'delivery_unavailable', 'delivery_uncertain']);
+const ERROR_CODES = new Set(['delivery_conflict', 'delivery_unavailable', 'delivery_uncertain',
+  'delivery_unavailable_github_401', 'delivery_unavailable_github_403', 'delivery_unavailable_github_404',
+  'delivery_unavailable_github_429', 'delivery_unavailable_github_5xx', 'delivery_unavailable_github_other_http',
+  'delivery_unavailable_timeout', 'delivery_unavailable_network', 'delivery_unavailable_malformed', 'delivery_unavailable_metadata']);
 
 function exactKeys(value, keys) {
   return value && typeof value === 'object' && !Array.isArray(value)
