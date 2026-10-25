@@ -1,6 +1,9 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import { flushIssueDelivery, makeIssueIntent } from '../src/issues-delivery.js';
+import { DatabaseSync } from 'node:sqlite';
+import { readFileSync } from 'node:fs';
+import * as nativeStore from '../src/outbox.js';
 
 const REPO = 'Maverlix777/agent-handoffs';
 const API = `https://api.github.com/repos/${REPO}`;
@@ -153,4 +156,50 @@ test('no automatic execution labels appear for new owner ideas', async () => {
   const payload = JSON.parse(h.state.calls.find(call => call.init.method === 'POST').init.body);
   assert.deepEqual(payload.labels, ['idea']);
   assert.equal(payload.labels.some(label => label.startsWith('cloud:') || label.startsWith('worker:') || label.startsWith('to:')), false);
+});
+
+function sqliteFixture() {
+  const sqlite = new DatabaseSync(':memory:');
+  sqlite.exec('PRAGMA foreign_keys = ON');
+  for (const file of ['0001_auth.sql', '0002_owner_outbox.sql', '0003_owner_issues.sql']) {
+    sqlite.exec(readFileSync(new URL(`../migrations/${file}`, import.meta.url), 'utf8'));
+  }
+  sqlite.prepare('INSERT INTO users(id,username,created_at) VALUES(?,?,1)').run('local-user', 'test-owner');
+  const prepare = (sql, args = []) => ({ bind(...values) { return prepare(sql, values); },
+    first() { return sqlite.prepare(sql).get(...args) || null; },
+    all() { return { results: sqlite.prepare(sql).all(...args) }; },
+    run() { return { meta: { changes: Number(sqlite.prepare(sql).run(...args).changes) } }; } });
+  return { sqlite, db: { prepare } };
+}
+
+test('actual SQLite store + Issues transport: durable author, concurrent lease and terminal receipt', async t => {
+  const f = sqliteFixture(); t.after(() => f.sqlite.close());
+  const saved = await nativeStore.enqueue(f.db, 'local-user', { idempotencyKey: crypto.randomUUID(), kind: 'message', text: message.text, target: null }, 1000, message.author);
+  const h = harness(saved.item);
+  // Observe the real SQLite intent instead of the mock store before each POST.
+  h.state.handler = (_url, init) => {
+    if (init.method === 'POST') h.state.intent = JSON.parse(f.sqlite.prepare('SELECT delivery_intent_json FROM owner_outbox WHERE id=?').get(saved.item.id).delivery_intent_json);
+  };
+  const run = () => flushIssueDelivery(f.db, env, saved.item.id, { fetchImpl: h.fetchImpl, store: nativeStore, now: () => 1000 });
+  const results = await Promise.all([run(), run(), run(), run()]);
+  assert.equal(results.filter(value => value.status === 'synced').length, 1);
+  assert.equal(h.state.posts, 1);
+  const listed = (await nativeStore.listSubmissions(f.db, 'local-user')).items[0];
+  assert.equal(listed.status, 'synced'); assert.deepEqual(listed.author, message.author);
+  assert.equal(listed.receipt.kind, 'issue'); assert.equal(listed.agentAck, null); assert.equal(listed.agentResult, null);
+  assert.equal((await run()).status, 'not_claimed');
+});
+
+test('actual SQLite uncertain intent survives lease expiry and only reconciles remote comment', async t => {
+  const f = sqliteFixture(); t.after(() => f.sqlite.close());
+  const saved = await nativeStore.enqueue(f.db, 'local-user', { idempotencyKey: crypto.randomUUID(), kind: 'answer', text: answer.text, target: answer.target }, 1000, answer.author);
+  const h = harness(saved.item, { handler(_url, init, state) {
+    if (init.method === 'POST') { state.posts += 1; state.remote = comment(JSON.parse(init.body).body); state.handler = null; throw new Error('ambiguous_timeout'); }
+  } });
+  const run = now => flushIssueDelivery(f.db, env, saved.item.id, { fetchImpl: h.fetchImpl, store: nativeStore, now: () => now });
+  assert.equal((await run(1000)).error, 'delivery_uncertain');
+  assert.equal((await run(2000)).status, 'not_claimed');
+  assert.equal((await run(62000)).status, 'synced');
+  assert.equal(h.state.posts, 1);
+  assert.equal((await nativeStore.listSubmissions(f.db, 'local-user')).items[0].receipt.commentId, 101);
 });
