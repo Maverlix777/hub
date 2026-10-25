@@ -1,4 +1,5 @@
-/** Local preparation/reconciliation only. No network, credentials, polling or execution of owner text. */
+/** Historical Markdown prototype, NOT the canonical runtime. See src/issues-delivery.js.
+ * Local preparation/reconciliation only. No network, credentials, polling or execution of owner text. */
 import { createHash } from 'node:crypto';
 import { readFileSync, writeFileSync, renameSync, mkdirSync, openSync, closeSync, unlinkSync, fsyncSync } from 'node:fs';
 import { resolve, dirname } from 'node:path';

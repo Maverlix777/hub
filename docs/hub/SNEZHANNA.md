@@ -1,5 +1,7 @@
 # Hub delivery adapter: implementation and activation boundary
 
+**Superseded:** canonical delivery is now GitHub Issues/comments; see [ISSUES-DELIVERY.md](ISSUES-DELIVERY.md). This document and `tools/hub-outbox-delivery.mjs` describe the historical Markdown prototype only. The Worker does not invoke it. Its synthetic live Contents receipt is not Issues or production E2E proof.
+
 ## Current result
 
 `tools/hub-outbox-delivery.mjs` is an executable, dependency-free local preparation and reconciliation adapter. It makes no network requests, starts no timer, reads no credentials, and never runs owner-supplied commands. The existing Worker read-only GitHub token remains read-only.

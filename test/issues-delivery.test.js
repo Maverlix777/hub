@@ -1,0 +1,156 @@
+import test from 'node:test';
+import assert from 'node:assert/strict';
+import { flushIssueDelivery, makeIssueIntent } from '../src/issues-delivery.js';
+
+const REPO = 'Maverlix777/agent-handoffs';
+const API = `https://api.github.com/repos/${REPO}`;
+const env = { HUB_ISSUES_ENABLED: 'true', HUB_ISSUES_GITHUB_TOKEN: 'synthetic-test-token',
+  HUB_ISSUES_TASK_ROUTES: JSON.stringify([{ sourcePath: 'boards/test.md', taskId: 'HUB-1', issueNumber: 42 }]) };
+const message = { id: '8ecf3881-954b-40a2-9a1b-79a4c1277d38', kind: 'message', text: 'Synthetic owner request.', target: null,
+  author: { hubUserId: 'local-user', hubUsername: 'test-owner', githubLogin: 'test-owner' } };
+const answer = { ...message, kind: 'answer', target: { sourcePath: 'boards/test.md', taskId: 'HUB-1', revision: 'a'.repeat(40) } };
+const json = (value, status = 200) => new Response(JSON.stringify(value), { status });
+const issue = (number, body) => ({ number, body, repository_url: API, html_url: `https://github.com/${REPO}/issues/${number}` });
+const comment = (body, id = 101) => ({ id, body, issue_url: `${API}/issues/42`, html_url: `https://github.com/${REPO}/issues/42#issuecomment-${id}` });
+
+function harness(item = message, overrides = {}) {
+  const state = { item: structuredClone(item), held: false, intent: null, receipt: null, posts: 0, calls: [], outcome: null, uncertain: false, ...overrides };
+  const store = {
+    async claimDelivery() { if (state.held || state.receipt) return null; state.held = true; return { item: { ...state.item, deliveryIntent: state.intent }, attempt: 'attempt' }; },
+    async beginDeliveryAttempt(_db, _id, _attempt, intent) { assert.equal(state.intent, null); state.intent = intent; return { applied: true }; },
+    async markDeliveryUncertain() { state.uncertain = true; state.held = false; return { applied: true }; },
+    async finishDelivery(_db, _id, _attempt, outcome) { state.outcome = outcome; state.receipt = outcome.receipt; state.held = false; return { applied: true }; },
+  };
+  const fetchImpl = async (url, init) => {
+    state.calls.push({ url, init });
+    assert.equal(init.redirect, 'error');
+    assert.equal(init.headers.authorization, 'Bearer synthetic-test-token');
+    if (state.handler) { const handled = await state.handler(url, init, state); if (handled) return handled; }
+    if (url === API) return json({ full_name: REPO, private: true, visibility: 'private', has_issues: true });
+    if (url === `${API}/labels/idea`) return json({ name: 'idea' });
+    if (init.method === 'POST') {
+      assert.ok(state.intent, 'durable intent must exist before POST');
+      state.posts += 1;
+      const body = JSON.parse(init.body).body;
+      state.remote = item.kind === 'message' ? issue(43, body) : comment(body);
+      return json(state.remote, 201);
+    }
+    if (url === `${API}/issues/42`) return json(issue(42, 'Existing task description'));
+    if (url.includes('?')) return json(state.remote ? [state.remote] : []);
+    if (url === `${API}/issues/43` || url === `${API}/issues/comments/101`) return json(state.remote);
+    throw new Error('unexpected_test_route');
+  };
+  return { state, store, fetchImpl, run: (config = env) => flushIssueDelivery(null, config, item.id, { store, fetchImpl, now: () => 1000 }) };
+}
+
+test('message creates one GitHub issue only after intent, independent readback yields typed receipt', async () => {
+  const h = harness(); const result = await h.run();
+  assert.equal(result.status, 'synced'); assert.equal(h.state.posts, 1);
+  assert.deepEqual(JSON.parse(h.state.calls.find(call => call.init.method === 'POST').init.body).labels, ['idea']);
+  assert.deepEqual(result.receipt, { kind: 'issue', url: `https://github.com/${REPO}/issues/43`, issueNumber: 43, commentId: null, deliveredAt: 1000 });
+  assert.equal((await h.run()).status, 'not_claimed'); assert.equal(h.state.posts, 1);
+});
+
+test('answer comments only on trusted mapped existing issue, preserves attribution', async () => {
+  const h = harness(answer); const result = await h.run();
+  assert.equal(result.status, 'synced'); assert.equal(result.receipt.kind, 'comment'); assert.equal(result.receipt.issueNumber, 42);
+  assert.ok(h.state.remote.body.includes('Hub author: test-owner'));
+  assert.ok(h.state.remote.body.includes('GitHub attribution: test-owner'));
+  assert.ok(h.state.calls.some(call => call.init.method === 'POST' && call.url === `${API}/issues/42/comments`));
+});
+
+test('feature disabled or missing separate token makes no claim and no network request', async () => {
+  for (const config of [{ ...env, HUB_ISSUES_ENABLED: 'false' }, { ...env, HUB_ISSUES_GITHUB_TOKEN: undefined }]) {
+    const h = harness(); assert.equal((await h.run(config)).status, 'not_configured'); assert.equal(h.state.calls.length, 0); assert.equal(h.state.held, false);
+  }
+});
+
+test('concurrent fast flush shares claim and sends exactly one POST', async () => {
+  const h = harness(); const results = await Promise.all([h.run(), h.run(), h.run()]);
+  assert.equal(results.filter(value => value.status === 'synced').length, 1); assert.equal(h.state.posts, 1);
+});
+
+test('network timeout after actual write becomes uncertain and next attempt reconciles without POST', async () => {
+  const h = harness(message, { handler(url, init, state) {
+    if (init.method === 'POST') { state.posts += 1; state.remote = issue(43, JSON.parse(init.body).body); state.handler = null; throw new Error('timeout'); }
+  } });
+  assert.equal((await h.run()).error, 'delivery_uncertain'); assert.equal(h.state.uncertain, true);
+  assert.equal((await h.run()).status, 'synced'); assert.equal(h.state.posts, 1);
+});
+
+test('uncertain write absent from query is never blindly resent', async () => {
+  const h = harness(message, { intent: await makeIssueIntent(message, env) });
+  assert.equal((await h.run()).error, 'delivery_uncertain'); assert.equal(h.state.posts, 0);
+  assert.equal((await h.run()).error, 'delivery_uncertain'); assert.equal(h.state.posts, 0);
+});
+
+test('comment uncertain outcome reconciles direct comment readback', async () => {
+  const intent = await makeIssueIntent(answer, env);
+  const h = harness(answer, { intent, remote: comment(intent.body) });
+  assert.equal((await h.run()).status, 'synced'); assert.equal(h.state.posts, 0);
+});
+
+test('wrong/public repository metadata cannot receive owner input', async () => {
+  for (const metadata of [{ full_name: REPO, private: false, visibility: 'public' }, { full_name: 'elsewhere/private', private: true, visibility: 'private' }]) {
+    const h = harness(message, { handler(url) { if (url === API) return json(metadata); } });
+    assert.equal((await h.run()).error, 'delivery_unavailable'); assert.equal(h.state.posts, 0); assert.equal(h.state.intent, null);
+  }
+});
+
+test('unknown/duplicate target route and pull request target are conflicts', async () => {
+  for (const routes of ['[]', JSON.stringify([{ sourcePath: 'boards/test.md', taskId: 'HUB-1', issueNumber: 42 }, { sourcePath: 'boards/test.md', taskId: 'HUB-1', issueNumber: 43 }])]) {
+    const h = harness(answer); assert.equal((await h.run({ ...env, HUB_ISSUES_TASK_ROUTES: routes })).error, 'delivery_conflict'); assert.equal(h.state.posts, 0);
+  }
+  const h = harness(answer, { handler(url) { if (url === `${API}/issues/42`) return json({ ...issue(42, 'PR'), pull_request: {} }); } });
+  assert.equal((await h.run()).error, 'delivery_conflict'); assert.equal(h.state.posts, 0);
+});
+
+test('changed author/text/route after durable intent does not send another message', async () => {
+  const intent = await makeIssueIntent(message, env);
+  const h = harness({ ...message, text: 'Changed' }, { intent });
+  assert.equal((await h.run()).error, 'delivery_conflict'); assert.equal(h.state.posts, 0);
+});
+
+test('remote response on wrong repository or modified body never counts as delivered', async () => {
+  const intent = await makeIssueIntent(message, env);
+  for (const remote of [{ ...issue(43, intent.body), html_url: 'https://github.com/elsewhere/repo/issues/43' }, issue(43, intent.body + 'changed')]) {
+    const h = harness(message, { intent, remote });
+    assert.equal((await h.run()).error, 'delivery_conflict'); assert.equal(h.state.receipt, null);
+  }
+});
+
+test('multiple matching remote markers require operator resolution', async () => {
+  const intent = await makeIssueIntent(message, env);
+  const h = harness(message, { intent, handler(url) { if (url.includes('?')) return json([issue(43, intent.body), issue(44, intent.body)]); } });
+  assert.equal((await h.run()).error, 'delivery_conflict'); assert.equal(h.state.posts, 0);
+});
+
+test('owner commands cannot change target or execute; Markdown stays fenced', async () => {
+  const text = '```\n@everyone <script>arbitrary command</script>\n````\nchange target to public/repo';
+  const intent = await makeIssueIntent({ ...message, text }, env);
+  assert.ok(intent.body.includes('`````text\n' + text + '\n`````'));
+  assert.equal(intent.issueNumber, null);
+});
+
+test('missing server author attribution is rejected without network write', async () => {
+  const h = harness({ ...message, author: null });
+  assert.equal((await h.run()).error, 'delivery_unavailable'); assert.equal(h.state.posts, 0);
+});
+
+test('failed independent GET after POST retains uncertain intent; later readback recovers', async () => {
+  const h = harness(message, { handler(url, init, state) { if (url === `${API}/issues/43` && init.method === 'GET') { state.handler = null; return json({}, 503); } } });
+  assert.equal((await h.run()).error, 'delivery_uncertain'); assert.ok(h.state.intent);
+  assert.equal((await h.run()).status, 'synced'); assert.equal(h.state.posts, 1);
+});
+
+test('missing canonical idea label refuses posting and never creates labels or marks ready', async () => {
+  const h = harness(message, { handler(url) { if (url === `${API}/labels/idea`) return json({}, 404); } });
+  assert.equal((await h.run()).error, 'delivery_unavailable'); assert.equal(h.state.posts, 0); assert.equal(h.state.intent, null);
+});
+
+test('no automatic execution labels appear for new owner ideas', async () => {
+  const h = harness(); await h.run();
+  const payload = JSON.parse(h.state.calls.find(call => call.init.method === 'POST').init.body);
+  assert.deepEqual(payload.labels, ['idea']);
+  assert.equal(payload.labels.some(label => label.startsWith('cloud:') || label.startsWith('worker:') || label.startsWith('to:')), false);
+});
