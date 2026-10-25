@@ -30,7 +30,7 @@ function jsonBlock(file, id) {
 }
 
 let sessionOk = true; // login.js при живой сессии уводит на /hub/, поэтому для страницы входа мок переключается на «аноним»
-const server = http.createServer((req, res) => {
+function createServer() { return http.createServer((req, res) => {
   const url = decodeURIComponent(req.url.split('?')[0]);
   if (!url.startsWith(PREFIX)) { res.writeHead(404); res.end('not found'); return; }
   // мок Worker API: сессия есть, выход даёт 204
@@ -39,6 +39,18 @@ const server = http.createServer((req, res) => {
     res.writeHead(200, { 'content-type': 'application/json' }); res.end('{"username":"test","entitlement":"free"}'); return;
   }
   if (req.method === 'POST' && url === PREFIX + 'api/logout') { res.writeHead(204); res.end(); return; }
+  // Synthetic owner response for the board page visited by the traversal below.
+  // This static fixture is not an authentication test; Worker tests cover that gate.
+  if (req.method === 'GET' && url === PREFIX + 'api/board') {
+    res.writeHead(200, { 'content-type': 'application/json', 'cache-control': 'no-store' });
+    res.end(JSON.stringify({
+      cards: [{ id: 'SYNTHETIC-1', title: 'Synthetic board task', who: 'test', state: 'Review',
+        ref: '', source: 'synthetic', column: 'progress' }],
+      counts: { ideas: 0, planned: 0, progress: 1, done: 0, questions: 0 }, unmappedCount: 0,
+      telemetry: { status: 'unknown', reason: 'not_configured', events: [], runs: [], gpu: { status: 'unknown', samples: [] } },
+    }));
+    return;
+  }
   let rel = url.slice(PREFIX.length);
   if (rel === 'login/') rel = 'login.html';
   if (rel === '' || rel.endsWith('/')) rel += 'index.html';
@@ -46,9 +58,11 @@ const server = http.createServer((req, res) => {
   if (!file.startsWith(SITE_ROOT + path.sep) || !fs.existsSync(file) || !fs.statSync(file).isFile()) { res.writeHead(404); res.end('not found'); return; }
   res.writeHead(200, { 'content-type': MIME[path.extname(file)] || 'application/octet-stream' });
   fs.createReadStream(file).pipe(res);
-});
+}); }
 
-(async () => {
+async function main() {
+  const server = createServer();
+  try {
   await new Promise((r) => server.listen(0, '127.0.0.1', r));
   const BASE = `http://127.0.0.1:${server.address().port}`;
   const apps = jsonBlock('index.html', 'apps');
@@ -94,6 +108,11 @@ const server = http.createServer((req, res) => {
         await p.fill('#q', 'zzz-нет-такого');
         check(`[${w}] Загрузки: поиск без совпадений`, (await p.textContent('li.empty')) === 'Ничего не найдено.');
         check(`[${w}] Загрузки: нет горизонтального скролла`, await p.evaluate(() => document.documentElement.scrollWidth <= window.innerWidth));
+      }
+      if (a.id === 'board') {
+        await p.waitForSelector('#columns .card');
+        check(`[${w}] board renders synthetic API card`, (await p.textContent('#columns')).includes('Synthetic board task'));
+        check(`[${w}] board renders unavailable telemetry explicitly`, (await p.textContent('#telemetry')).includes('unknown'));
       }
       await p.click('#hub');
       await p.waitForSelector('a.tile');
@@ -158,4 +177,9 @@ const server = http.createServer((req, res) => {
   server.close();
   console.log(`\nИтог: ${passed} прошло, ${failed} упало`);
   process.exit(failed ? 1 : 0);
-})().catch((e) => { console.error(e); server.close(); process.exit(1); });
+  } catch (e) { console.error(e); server.close(); process.exit(1); }
+}
+
+if (require.main === module) main();
+
+module.exports = { createServer };
