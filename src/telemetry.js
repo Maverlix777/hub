@@ -2,9 +2,11 @@
 const MAX_BYTES = 256 * 1024;
 const MAX_AGE = 15 * 60 * 1000;
 const states = new Set(['dispatched', 'ack', 'running', 'result_reported', 'error', 'unknown']);
-const id = (value) => typeof value === 'string' && value.length <= 160 && /^[A-Za-z0-9_.:/-]+$/.test(value)
-  && !/^(?:sk-|gh[pousr]_|github_pat_|Bearer|[A-Za-z]:\/|https?:|\/)/i.test(value)
-  && !value.includes('..') && !value.includes('\\') ? value : null;
+// IDs are bounded opaque labels, never paths. Keep model tags (gemma4:12b),
+// UUIDs and task/run IDs; reject credential-shaped prefixes and drive-relative paths.
+const id = (value) => typeof value === 'string' && value.length <= 160 && /^[A-Za-z0-9][A-Za-z0-9_.:-]*$/.test(value)
+  && !/^(?:sk[-_]|gh[pousr]_|github_pat_|bearer|[A-Za-z]:)/i.test(value)
+  && !value.includes('..') ? value : null;
 const time = (value) => typeof value === 'string' && /^\d{4}-\d\d-\d\dT.*Z$/.test(value) && Number.isFinite(Date.parse(value)) ? value : null;
 const fresh = (value, now) => time(value) && now >= Date.parse(value) && now - Date.parse(value) <= MAX_AGE;
 const number = (value, integer = false) => typeof value === 'number' && Number.isFinite(value) && value >= 0

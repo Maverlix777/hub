@@ -108,3 +108,46 @@ test('PR710 synthetic producer envelope supports absent run ID and never trusts 
   assert.equal(claimed.events[0].state, 'result_reported');
   assert.ok(!JSON.stringify(claimed).includes('DO-NOT-TRUST'));
 });
+
+test('closed identifiers reject relative paths and credential-shaped values in every exported ID role', () => {
+  const rejected = ['home/alice/private/report.txt', '/home/alice/private/report.txt', 'home\\alice\\report.txt',
+    'C:private.txt', '../private.txt', 'ghs_syntheticExampleSecret', 'GHO_syntheticExampleSecret',
+    'ghu_syntheticExampleSecret', 'ghr_syntheticExampleSecret', 'ghp_syntheticExampleSecret',
+    'github_pat_syntheticExampleSecret', 'sk_syntheticExampleSecret', 'sk-syntheticExampleSecret', 'BearerSynthetic',
+    'name with space', 'x'.repeat(161)];
+  for (const value of rejected) {
+    const input = sample();
+    input.telemetry.events[0].facts.task_id = value;
+    input.telemetry.events[0].facts.turn_id = value;
+    input.telemetry.gemma.results[0].run_id = value;
+    const result = projectTelemetry(input, now);
+    assert.equal(result.events[0].task_id, null, `task rejected: ${value}`);
+    assert.equal(result.events[0].turn_id, null, `turn rejected: ${value}`);
+    assert.equal(result.runs[0].run_id, null, `run rejected: ${value}`);
+    assert.ok(!JSON.stringify(result).includes(value), `no rejected value emitted: ${value}`);
+    const modelInput = sample(); modelInput.telemetry.gemma.results[0].model = value;
+    assert.equal(projectTelemetry(modelInput, now).runs[0].model, null, `model rejected: ${value}`);
+    const gpuInput = sample(); gpuInput.telemetry.gpu.samples[0].device_id = value;
+    assert.equal(projectTelemetry(gpuInput, now).status, 'unknown', 'bad GPU identity fails closed');
+    input.telemetry.events[0].id = value;
+    assert.equal(projectTelemetry(input, now).status, 'unknown', 'bad event identity fails closed');
+  }
+});
+
+test('closed identifier grammar preserves UUID, task/run IDs, hashes, GPU IDs and model tags', () => {
+  const input = sample();
+  input.telemetry.events[0].id = 'a'.repeat(64);
+  input.telemetry.events[0].facts.task_id = 'QA-13-PR709-acceptance';
+  input.telemetry.events[0].facts.turn_id = '01234567-89ab-cdef-0123-456789abcdef';
+  input.telemetry.gemma.results[0].run_id = 'try1_run-20261025.001';
+  input.telemetry.gemma.results[0].model = 'gemma4:12b';
+  input.telemetry.gpu.samples[0].device_id = 'GPU-01234567-89ab-cdef-0123-456789abcdef';
+  const result = projectTelemetry(input, now);
+  assert.equal(result.status, 'available');
+  assert.equal(result.events[0].id, 'a'.repeat(64));
+  assert.equal(result.events[0].task_id, 'QA-13-PR709-acceptance');
+  assert.equal(result.events[0].turn_id, '01234567-89ab-cdef-0123-456789abcdef');
+  assert.equal(result.runs[0].run_id, 'try1_run-20261025.001');
+  assert.equal(result.runs[0].model, 'gemma4:12b');
+  assert.equal(result.gpu.samples[0].device_id, 'GPU-01234567-89ab-cdef-0123-456789abcdef');
+});
