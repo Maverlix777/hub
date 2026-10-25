@@ -62,16 +62,19 @@ const mk = (id, column, extra = {}) => ({ key: `f::${id}`, id, title: `Task ${id
     assert.match(await page.locator('#board-errors').textContent(), /http_403/);
     boardMode = 'fail'; await page.locator('#refresh').click();
     await page.waitForFunction(() => /board_unavailable/.test(document.getElementById('board-errors').textContent));
-    // T3: Snezhana panel visible on load, toggles, sends
+    // T3: Snezhana panel is a collapsed button on load (owner 2026-10-25), opens on click, sends
+    await page.evaluate(() => localStorage.removeItem('hub.board.snezhana'));
     await page.goto(base + '/hub/apps/board.html'); await page.locator('#snezhana-panel').waitFor();
     boardMode = 'ok';
-    assert.equal(await page.locator('#snezhana-body').isVisible(), true);
+    assert.equal(await page.locator('#snezhana-toggle').isVisible(), true);
+    assert.equal(await page.locator('#snezhana-body').isHidden(), true, 'collapsed by default');
+    assert.equal(await page.locator('#snezhana-toggle').getAttribute('aria-expanded'), 'false');
     const box = await page.locator('#snezhana-panel').boundingBox();
     assert.ok(box.x + box.width > 1300 && box.y + box.height > 900, 'bottom-right');
+    assert.ok(box.width < 260, 'collapsed panel is a compact button');
     await page.locator('#snezhana-toggle').click();
-    assert.equal(await page.locator('#snezhana-body').isHidden(), true);
-    assert.equal(await page.locator('#snezhana-toggle').getAttribute('aria-expanded'), 'false');
-    await page.locator('#snezhana-toggle').click();
+    assert.equal(await page.locator('#snezhana-body').isVisible(), true);
+    assert.equal(await page.locator('#snezhana-toggle').getAttribute('aria-expanded'), 'true');
     // T4: addressee select
     const opts = await page.locator('#snezhana-to option').evaluateAll((o) => o.map((x) => x.value));
     assert.deepEqual(opts, ['idea', 'claude', 'codex', 'snezhana', 'pedro', 'mazila']);
