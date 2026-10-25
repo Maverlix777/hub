@@ -6,7 +6,7 @@
   const drafts = new Map();
   let cards = []; let sources = []; let items = []; let loading = false; let openKey = null;
   let focusBefore = null; let lastRead = null; let outboxAvailable = false; let nextCursor = null;
-  let authGeneration = 0; let authInvalid = false;
+  let authGeneration = 0; let authInvalid = false; let boardFailure = '';
   const receiptChecks = new Map();
   const deliveryRetries = new Set();
   const cardKey = (card) => card.key || `${card.sourcePath || card.source}::${card.id}`;
@@ -40,15 +40,43 @@
     node.replaceChildren(...list.map(cardButton));
     if (!list.length) node.append(el('li', 'empty', empty));
   }
+  const COLLAPSE_KEY = 'hub.board.collapsed';
+  function readCollapsed() {
+    try { const value = JSON.parse(localStorage.getItem(COLLAPSE_KEY) || '[]'); return new Set(Array.isArray(value) ? value.filter((k) => typeof k === 'string') : []); } catch { return new Set(); }
+  }
+  function toggleColumn(key) {
+    const set = readCollapsed();
+    if (set.has(key)) set.delete(key); else set.add(key);
+    try { localStorage.setItem(COLLAPSE_KEY, JSON.stringify([...set])); } catch { /* storage may be blocked */ }
+    render();
+    const again = document.querySelector(`.col-toggle[data-col="${key}"]`); if (again) again.focus();
+  }
+  function renderErrors(message) {
+    const box = $('board-errors'); if (!box) return;
+    const lines = [];
+    if (message) lines.push(message);
+    for (const source of sources) {
+      if (source.status === 'error') lines.push(`Источник «${source.path || source.name || 'без имени'}»: ошибка загрузки${source.error ? ` (${/^[a-z0-9_]{1,40}$/.test(source.error) ? source.error : 'неизвестно'})` : ''}. Нули в колонках ниже недостоверны.`);
+      else if (source.status === 'unsupported') lines.push(`Источник «${source.path || source.name || 'без имени'}»: формат не распознан.`);
+    }
+    box.replaceChildren(...lines.map((line) => el('p', 'error', line))); box.hidden = !lines.length;
+  }
   function render() {
     const query = $('q').value.trim().toLowerCase();
     const shown = cards.filter((card) => !query || `${card.id} ${card.title} ${card.owner || card.who} ${card.state} ${card.description || ''}`.toLowerCase().includes(query));
     $('columns').replaceChildren();
+    const collapsed = readCollapsed();
     for (const [key, label] of columns) {
       const rows = shown.filter((card) => card.column === key);
-      const section = el('section', `col ${key}`); const heading = el('h3', '', label);
-      heading.append(el('span', 'count', rows.length)); section.append(heading);
-      const ul = el('ul'); fillList(ul, key === 'done' ? rows.slice().reverse() : rows, query ? 'Нет совпадений' : 'Пока нет задач');
+      const isCollapsed = collapsed.has(key);
+      const section = el('section', `col ${key}${isCollapsed ? ' collapsed' : ''}`); const heading = el('h3');
+      const toggle = el('button', 'col-toggle'); toggle.type = 'button'; toggle.dataset.col = key;
+      toggle.setAttribute('aria-expanded', String(!isCollapsed)); toggle.setAttribute('aria-controls', `col-${key}`);
+      toggle.append(el('span', 'col-label', label), el('span', 'count', rows.length), el('span', 'chev', ''));
+      toggle.addEventListener('click', () => toggleColumn(key));
+      heading.append(toggle); section.append(heading);
+      const ul = el('ul'); ul.id = `col-${key}`; ul.hidden = isCollapsed;
+      fillList(ul, key === 'done' ? rows.slice().reverse() : rows, query ? 'Нет совпадений' : 'Пока нет задач');
       section.append(ul); $('columns').append(section);
     }
     const questions = shown.filter((card) => card.column === 'questions');
@@ -58,7 +86,7 @@
     $('idea-count').textContent = String(ideas.length);
     const incomplete = sources.some((source) => ['error', 'unsupported'].includes(source.status));
     fillList($('idea-list'), ideas, query ? 'Нет совпадений' : incomplete ? 'Идеи не прочитаны полностью. Проверь состояния источников ниже.' : sources.length ? 'В прочитанных источниках идей нет' : 'Источники идей не подтверждены');
-    renderSources();
+    renderSources(); if (cards.length || sources.length) renderErrors(boardFailure);
   }
   function renderSources() {
     const details = el('details'); details.append(el('summary', '', `Источники: ${sources.length}`));
@@ -387,11 +415,12 @@
     $('status').textContent = lastRead ? `Обновляем… Последнее чтение: ${date(lastRead)}` : 'Загружаем доску…';
     try {
       const board = await api('board'); requireActiveSession(); cards = Array.isArray(board.cards) ? board.cards : []; sources = Array.isArray(board.sources) ? board.sources : [];
-      lastRead = new Date().toISOString();
+      lastRead = new Date().toISOString(); boardFailure = '';
       $('status').className = 'status'; $('status').textContent = `Карточек: ${cards.length}. Прочитано: ${date(lastRead)}${board.unmappedCount ? `. Не распознано строк: ${board.unmappedCount}` : ''}`;
       render(); renderTelemetry(board.telemetry); restoreHistory();
     } catch (error) {
       if (authInvalid) return;
+      boardFailure = `Не удалось прочитать доску: ${error?.code || error?.message || 'сеть недоступна'}. Это не значит, что задач нет.`; renderErrors(boardFailure);
       $('status').className = 'status error'; $('status').textContent = `Не удалось обновить доску.${lastRead ? ` Показан старый снимок от ${date(lastRead)}.` : ' Данные не прочитаны.'}`;
       if (!lastRead) { $('question-list').replaceChildren(el('li','error','Вопросы не загружены')); $('idea-list').replaceChildren(el('li','error','Ошибка чтения источников; это не означает отсутствие идей.')); $('columns').replaceChildren(el('p','error','Доска недоступна. Нажми «Обновить», чтобы повторить.')); }
     } finally { loading = false; $('refresh').disabled = authInvalid; $('columns').setAttribute('aria-busy','false'); }
