@@ -5,24 +5,29 @@
 <meta http-equiv="Content-Security-Policy" content="default-src 'self'; connect-src 'self' https://api.anthropic.com; style-src 'self' 'unsafe-inline'; base-uri 'self'; form-action 'self'">
 <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
 <meta name="referrer" content="no-referrer">
-<meta name="color-scheme" content="light dark">
+<meta name="color-scheme" content="light">
+<meta name="theme-color" content="#f3f5f9">
 <link rel="manifest" href="../manifest.webmanifest">
 <link rel="icon" type="image/png" href="../icons/icon-192.png">
 <link rel="apple-touch-icon" href="../icons/icon-180.png">
 <meta name="apple-mobile-web-app-title" content="Хаб">
-<meta name="theme-color" content="#f6f6f4" media="(prefers-color-scheme: light)">
-<meta name="theme-color" content="#141413" media="(prefers-color-scheme: dark)">
 <title>Чат — Хаб</title>
 <link rel="stylesheet" href="../style.css">
 <link rel="stylesheet" href="chat.css">
 </head>
 <body>
-<header class="bar">
-  <a class="btn" id="hub" href="../">← Хаб</a>
-  <h1>Чат</h1>
-  <button type="button" id="clear">Очистить</button>
+<header class="bar hub-header">
+  <a class="hub-brand" id="hub" href="/hub/" aria-label="Хаб — главная">Хаб<span class="brand-dot" aria-hidden="true"></span></a>
+  <nav class="hub-nav" aria-label="Основная навигация">
+    <a id="nav-board" href="/hub/" data-nav-app="board" hidden>Доска</a>
+    <a id="nav-apps" href="/hub/index.html">Приложения</a>
+    <a id="nav-chat" aria-current="page" href="/hub/apps/chat.html" data-nav-app="chat" hidden>Claude API</a>
+    <a id="nav-downloads" href="/hub/apps/downloads.html" data-nav-app="downloads" hidden>Загрузки</a>
+  </nav>
+  <div class="account" id="account" hidden><span id="account-name"></span><button id="logout" type="button" hidden>Выйти</button></div>
 </header>
 <main class="chat">
+  <section class="page-intro"><p class="eyebrow">ЛИЧНЫЙ ИНСТРУМЕНТ</p><div class="page-title-row"><h1>Claude API</h1><button type="button" id="clear">Очистить</button></div><p>Чат с собственным ключом Anthropic. Для задач команды используй рабочую доску.</p></section>
   <p id="session-status" class="session-status" role="status" aria-live="polite" hidden></p>
   <details id="settings" class="settings">
     <summary>Настройки</summary>
@@ -54,5 +59,6 @@
   </div>
 </main>
 <script src="chat.js"></script>
+<script src="/hub/hub.js"></script>
 </body>
 </html>

@@ -1,6 +1,7 @@
 'use strict';
 (function () {
-  const apps = JSON.parse(document.getElementById('apps').textContent);
+  const appData = document.getElementById('apps');
+  const apps = appData ? JSON.parse(appData.textContent) : [];
   const grid = document.getElementById('grid');
   const accountName = document.getElementById('account-name');
   const logout = document.getElementById('logout');
@@ -8,6 +9,20 @@
   const sessionStatus = document.getElementById('session-status');
   let ended = false;
   let checking = null;
+
+  function notifySessionEnded() {
+    // Same-page consumers clear private state synchronously, before logout I/O.
+    // No account, key, draft or other private data is carried by this event.
+    if (typeof Event === 'function' && typeof window.dispatchEvent === 'function') window.dispatchEvent(new Event('hub:session-ended'));
+  }
+  function hideAccount() {
+    account.hidden = true; logout.hidden = true; logout.disabled = true;
+    accountName.textContent = '';
+  }
+  window.addEventListener('hub:session-ended', () => {
+    if (ended) return;
+    ended = true; hideAccount(); clearChatData();
+  });
 
   function clearChatData() {
     try { sessionStorage.removeItem('hub.chat.key'); } catch { /* storage may be unavailable */ }
@@ -22,9 +37,8 @@
   function endSession() {
     if (ended) return;
     ended = true;
-    account.hidden = true;
-    logout.hidden = true;
-    accountName.textContent = '';
+    hideAccount();
+    notifySessionEnded();
     clearChatData();
     window.location.replace('/hub/login/');
   }
@@ -38,6 +52,10 @@
   // Own apps: hidden unless allowed. External tiles: hidden only when the server lists them as locked.
   const tileItems = new Map();
   function hideDeniedTiles(allowed, locked) {
+    for (const id of ['board', 'chat', 'downloads']) {
+      const link = document.getElementById(`nav-${id}`);
+      if (link) link.hidden = !allowed.includes(id);
+    }
     for (const app of apps) {
       const external = /^https?:/i.test(app.href || '');
       const denied = external ? locked.includes(app.id) : Boolean(app.href) && !allowed.includes(app.id);
@@ -80,10 +98,8 @@
     if (ended) return;
     // End local access before awaiting the logout request or another session response.
     ended = true;
-    account.hidden = true;
-    logout.hidden = true;
-    logout.disabled = true;
-    accountName.textContent = '';
+    hideAccount();
+    notifySessionEnded();
     clearChatData();
     try {
       await fetch('/hub/api/logout', {
@@ -95,9 +111,9 @@
   });
   checkSession();
 
-  // Remove keys left by the older public Hub version; keys are now kept in tab memory only.
+  // Remove legacy persistent keys. The chat now uses this tab's sessionStorage.
   try { localStorage.removeItem('hub.chat.key'); } catch { /* storage may be unavailable */ }
-  for (const app of apps) {
+  for (const app of grid ? apps : []) {
     const li = document.createElement('li');
     tileItems.set(app.id, li);
     const ready = app.status === 'ready' && app.href;
@@ -108,6 +124,10 @@
       tile.href = app.href;
       if (/^https?:/i.test(app.href)) tile.rel = 'noopener noreferrer';
     } else tile.setAttribute('aria-disabled', 'true');
+    if (app.category) {
+      const category = document.createElement('span'); category.className = 'tile-category';
+      category.textContent = app.category; tile.append(category);
+    }
     const title = document.createElement('span');
     title.className = 'tile-title';
     title.textContent = app.title;
@@ -123,6 +143,9 @@
       badge.className = 'badge';
       badge.textContent = 'скоро';
       tile.append(badge);
+    } else if (app.action) {
+      const action = document.createElement('span'); action.className = 'tile-action';
+      action.textContent = `${app.action} ↗`; tile.append(action);
     }
     li.append(tile);
     grid.append(li);

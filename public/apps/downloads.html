@@ -443,27 +443,35 @@
 </script>
 <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
 <meta name="referrer" content="no-referrer">
-<meta name="color-scheme" content="light dark">
+<meta name="color-scheme" content="light">
+<meta name="theme-color" content="#f3f5f9">
 <link rel="manifest" href="../manifest.webmanifest">
 <link rel="icon" type="image/png" href="../icons/icon-192.png">
 <link rel="apple-touch-icon" href="../icons/icon-180.png">
 <meta name="apple-mobile-web-app-title" content="Хаб">
-<meta name="theme-color" content="#f6f6f4" media="(prefers-color-scheme: light)">
-<meta name="theme-color" content="#141413" media="(prefers-color-scheme: dark)">
 <title>Загрузки — Хаб</title>
 <link rel="stylesheet" href="../style.css">
 <link rel="stylesheet" href="downloads.css">
 </head>
 <body>
-<header class="bar">
-  <a class="btn" id="hub" href="../">← Хаб</a>
-  <h1>Загрузки</h1>
+<header class="bar hub-header">
+  <a class="hub-brand" id="hub" href="/hub/" aria-label="Хаб — главная">Хаб<span class="brand-dot" aria-hidden="true"></span></a>
+  <nav class="hub-nav" aria-label="Основная навигация">
+    <a id="nav-board" href="/hub/" data-nav-app="board" hidden>Доска</a>
+    <a id="nav-apps" href="/hub/index.html">Приложения</a>
+    <a id="nav-chat" href="/hub/apps/chat.html" data-nav-app="chat" hidden>Claude API</a>
+    <a id="nav-downloads" aria-current="page" href="/hub/apps/downloads.html" data-nav-app="downloads" hidden>Загрузки</a>
+  </nav>
+  <div class="account" id="account" hidden><span id="account-name"></span><button id="logout" type="button" hidden>Выйти</button></div>
 </header>
 <main class="downloads">
-  <p class="hint">Каталог доступных сборок и файлов, для которых пока нет публичной ссылки. Бинарников в git нет.</p>
+  <section class="page-intro"><p class="eyebrow">ФАЙЛЫ И СБОРКИ</p><h1>Загрузки</h1><p>Выбери приложение и платформу. Версии и состояние файлов указаны в карточках.</p></section>
+  <p id="session-status" class="session-status" role="status" aria-live="polite" hidden></p>
+  <p class="hint">Некоторые сборки пока недоступны — у них нет кнопки загрузки.</p>
   <input id="q" type="search" placeholder="Поиск: проект, платформа, версия" aria-label="Поиск">
   <ul id="list" class="dl-list"></ul>
 </main>
 <script src="downloads.js"></script>
+<script src="/hub/hub.js"></script>
 </body>
 </html>

@@ -24,6 +24,8 @@ jobs:
         run: npm audit --audit-level=high
       - name: Test WebAuthn and session worker
         run: npm test
+      - name: Check GitHub transports in the actual Worker runtime
+        run: node --test tests/workerd-redirect.cjs
       - name: Dry-run Worker bundle (no Cloudflare login)
         run: npx wrangler deploy --dry-run --outdir "$RUNNER_TEMP/wrangler-dry"
       - name: Build allowlisted public site
@@ -49,6 +51,8 @@ jobs:
         run: node --experimental-sqlite tests/hub-acceptance-browser.cjs
       - name: Check persisted pending recovery through existing delivery API
         run: node --experimental-sqlite tests/hub-acceptance-resume.cjs
+      - name: Check dashboard homepage, navigation, logout and responsive layout
+        run: node tests/dashboard-first.cjs
       - name: Upload synthetic Hub acceptance screenshots
         if: always()
         uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4

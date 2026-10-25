@@ -91,3 +91,7 @@ The actual GitHub connector CAS/readback leg used one explicitly synthetic priva
 ## Plan author self-check
 
 Scope: only the three assigned planning documents were authored. Existing Worker architecture and boundaries are retained. Proposed API details require coordination with implementers; they are not implemented assertions. No private contents, owner transcript, credentials, deployment configuration, or runtime snapshot is copied here. Documentation validation uses diff inspection and whitespace checks; no product test or live delivery claim follows from it.
+
+## Dashboard-first UI work
+
+The owner selected a dashboard-first homepage. The concrete scope, separate routing/UI ownership and acceptance checks are in [DASHBOARD-FIRST-PLAN.md](DASHBOARD-FIRST-PLAN.md). This is separate from the incident diagnostic patch. Keep prior evidence above as historical evidence; new integrated code requires its own verification and release authorization.

@@ -1,28 +1,14 @@
 :root {
-  --bg: #f6f6f4;
-  --fg: #1b1b1a;
-  --muted: #6b6b66;
+  --bg: #f3f5f9;
+  --fg: #202d42;
+  --muted: #5d6c82;
   --card: #ffffff;
-  --line: #deded8;
-  --accent: #2f5bd3;
+  --line: #dce3ed;
+  --accent: #365fd6;
   --accent-fg: #ffffff;
   --err-bg: #fdecec;
   --err-fg: #8a1414;
   color-scheme: light;
-}
-@media (prefers-color-scheme: dark) {
-  :root {
-    --bg: #141413;
-    --fg: #ececea;
-    --muted: #9a9a94;
-    --card: #1f1f1d;
-    --line: #34342f;
-    --accent: #7d9cf0;
-    --accent-fg: #0e0e0d;
-    --err-bg: #3a1717;
-    --err-fg: #ffb4b4;
-    color-scheme: dark;
-  }
 }
 * { box-sizing: border-box; }
 html, body { margin: 0; }
@@ -43,11 +29,12 @@ main { padding: 16px max(16px, env(safe-area-inset-right)) 16px max(16px, env(sa
 .grid {
   list-style: none; margin: 0; padding: 0;
   display: grid; gap: 12px;
-  grid-template-columns: repeat(auto-fill, minmax(160px, 1fr));
+  grid-template-columns: repeat(3, minmax(0, 1fr));
 }
+.grid > li { min-width:0; display:flex; }
 .tile {
   display: flex; flex-direction: column; gap: 6px;
-  min-height: 120px; padding: 16px;
+  min-height: 230px; padding: 22px; width:100%; height:100%;
   background: var(--card); color: var(--fg);
   border: 1px solid var(--line); border-radius: 14px;
   text-decoration: none;
@@ -56,6 +43,8 @@ a.tile:hover, a.tile:focus-visible { border-color: var(--accent); outline: none;
 .tile.soon { opacity: .55; cursor: not-allowed; user-select: none; }
 .tile-title { font-weight: 600; font-size: 17px; }
 .tile-desc { color: var(--muted); font-size: 14px; }
+.tile-category { color:var(--muted); font-size:10px; font-weight:700; letter-spacing:.7px; margin-bottom:12px; }
+.tile-action { margin-top:auto; padding-top:22px; color:var(--accent); font-size:13px; font-weight:600; }
 .badge {
   margin-top: auto; align-self: flex-start;
   font-size: 12px; padding: 2px 8px; border-radius: 999px;
@@ -87,4 +76,35 @@ input:focus-visible, select:focus-visible, textarea:focus-visible, summary:focus
   .bar { flex-wrap: wrap; }
   .account { flex-wrap: wrap; max-width: 100%; margin-left: auto; }
   .account #account-name { max-width: 100%; }
+}
+
+/* One light navigation shell for the board, catalog and existing tools. */
+.hub-header { background:var(--card); padding:14px 24px; gap:24px; flex-wrap:wrap; }
+.hub-brand { display:inline-flex; align-items:center; gap:9px; color:var(--fg); font-size:21px; font-weight:750; text-decoration:none; flex-shrink:0; }
+.brand-dot { width:8px; height:8px; border-radius:50%; background:var(--accent); }
+.hub-nav { display:flex; gap:4px; align-items:center; }
+.hub-nav a { text-decoration:none; color:var(--muted); border-radius:8px; padding:9px 12px; font-size:14px; font-weight:550; white-space:nowrap; }
+.hub-nav a:hover { background:#f3f5f9; color:var(--fg); }
+.hub-nav a[aria-current="page"] { background:#eaf0ff; color:var(--accent); }
+.hub-header .account { margin-left:auto; max-width:none; font-size:13px; }
+.hub-header .account button { min-height:36px; padding:6px 11px; font-size:13px; }
+.hub-brand:focus-visible,.hub-nav a:focus-visible { outline:3px solid var(--accent); outline-offset:3px; }
+.catalog-page { max-width:1160px; padding-top:34px; padding-bottom:64px; }
+.page-intro { margin-bottom:24px; }
+.page-intro h1 { margin:5px 0 10px; font-size:clamp(25px,3vw,34px); line-height:1.25; letter-spacing:-.7px; }
+.page-intro p { max-width:720px; color:var(--muted); font-size:14px; line-height:1.6; margin:0; }
+.eyebrow,.page-intro .eyebrow { font-size:10px; letter-spacing:1px; font-weight:700; color:var(--muted); }
+.page-title-row { display:flex; align-items:center; justify-content:space-between; gap:16px; }
+.chat,.downloads { padding-top:30px; }
+.chat .page-intro,.downloads .page-intro { margin-bottom:8px; }
+@media(max-width:1000px) { .grid { grid-template-columns:repeat(2,minmax(0,1fr)); } }
+@media(max-width:850px) { .hub-header { gap:12px; } .hub-nav { order:3; width:100%; } }
+@media(max-width:560px) {
+  .grid { grid-template-columns:minmax(0,1fr); }
+  .tile { min-height:190px; padding:20px; }
+  .hub-header { padding:12px 14px; gap:10px; }
+  .hub-nav { display:grid; grid-template-columns:repeat(2,minmax(0,1fr)); gap:4px; min-width:0; }
+  .hub-nav a { font-size:14px; padding:9px 10px; min-width:0; white-space:normal; }
+  .hub-header .account { max-width:70%; }
+  .catalog-page { padding:24px 14px 44px; }
 }

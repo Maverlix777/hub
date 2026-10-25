@@ -19,14 +19,15 @@ class Element {
 const tick = () => new Promise(resolve => setImmediate(resolve));
 const session = (status = 200, body = {username: 'synthetic.user', entitlement: 'free'}) => ({status, ok: status >= 200 && status < 300, json: async () => body});
 function deferred() { let resolve; const promise = new Promise(r => { resolve = r; }); return {promise, resolve}; }
-function page(kind, fetcher, appList = []) {
+function page(kind, fetcher, appList = [], options = {}) {
   const elements = {};
   const get = id => elements[id] ||= new Element(id);
   const document = new Element('document');
-  document.getElementById = get;
+  document.getElementById = id => options.headerOnly && ['apps','grid'].includes(id) ? null : get(id);
   document.createElement = () => new Element('created');
   document.hidden = false;
   const window = new Element('window');
+  window.dispatchEvent = event => { for (const fn of window.listeners[event.type] || []) fn(event); return true; };
   const redirects = [];
   window.location = {replace: url => redirects.push(url)};
   get('apps').textContent = JSON.stringify(appList);
@@ -43,7 +44,7 @@ function page(kind, fetcher, appList = []) {
     getItem: {value: k => stored[k] ?? null}, setItem: {value: (k, v) => { stored[k] = v; }}, removeItem: {value: k => { delete stored[k]; }},
   });
   const calls = [];
-  const context = {window, document, localStorage: stored, AbortController, TextDecoder, Date, console,
+  const context = {window, document, localStorage: stored, AbortController, TextDecoder, Date, Event, console,
     fetch: async (url, options) => { calls.push({url, options}); return fetcher(url, options); }};
   vm.runInNewContext(fs.readFileSync(path.join(ROOT, kind === 'hub' ? 'public/hub.js' : 'public/apps/chat.js'), 'utf8'), context);
   return {get, window, document, redirects, stored, calls};
@@ -115,7 +116,7 @@ test('focus and visibility share pending chat check; logout prevents stale succe
 
 test('navigation, accessible status and focus CSS are present', () => {
   for (const file of ['public/apps/chat.html', 'public/apps/downloads.html']) {
-    assert.match(fs.readFileSync(path.join(ROOT, file), 'utf8'), /id="hub" href="\.\.\/"/);
+    assert.match(fs.readFileSync(path.join(ROOT, file), 'utf8'), /id="hub" href="\/hub\/"/);
   }
   for (const file of ['public/index.html', 'public/apps/chat.html']) {
     const html = fs.readFileSync(path.join(ROOT, file), 'utf8');
@@ -196,4 +197,48 @@ test('hub shows a locked-for-free external tile to a paid session', async () => 
   await tick();
   const hidden = Object.fromEntries(p.get('grid').children.map(li => [li.children[0].dataset.id, li.hidden]));
   assert.deepEqual(hidden, {chat: false, 'paid-ext': false});
+});
+
+test('shared header works without catalog nodes and filters navigation from existing session apps', async () => {
+  const p = page('hub', async () => session(200,{username:'synthetic.user',apps:['board','downloads'],locked:[]}), [], {headerOnly:true});
+  await tick();
+  assert.equal(p.get('account-name').textContent,'synthetic.user');
+  assert.equal(p.get('nav-board').hidden,false);
+  assert.equal(p.get('nav-chat').hidden,true);
+  assert.equal(p.get('nav-downloads').hidden,false);
+});
+
+test('shared logout synchronously notifies consumers before POST and late header response stays hidden', async () => {
+  const wait=deferred(); const logout=deferred(); const sequence=[];
+  const p=page('hub',url=>{
+    if(url==='/hub/api/session') return wait.promise;
+    sequence.push('post'); assert.deepEqual(sequence,['clear','post']); return logout.promise;
+  },[],{headerOnly:true});
+  p.window.addEventListener('hub:session-ended',event=>{ assert.equal(event.detail,undefined); sequence.push('clear'); });
+  const finishing=p.get('logout').fire('click');
+  assert.deepEqual(sequence,['clear','post']);
+  assert.equal(p.get('account').hidden,true);
+  wait.resolve(session()); await tick();
+  assert.equal(p.get('account').hidden,true);
+  assert.equal(p.get('account-name').textContent,'');
+  logout.resolve(session()); await finishing;
+  assert.deepEqual(p.redirects,['/hub/login/']);
+});
+
+test('chat shared-header logout clears key and drafts and blocks a pending send without redirecting early', async () => {
+  let wait=null;
+  const p=page('chat',()=>wait ? wait.promise : Promise.resolve(session())); await tick();
+  p.get('key').value='synthetic-key'; await p.get('saveKey').fire('click');
+  assert.equal(p.get('forgetKey').disabled,false);
+  wait=deferred(); const send=p.get('send').fire('click');
+  p.window.dispatchEvent(new Event('hub:session-ended'));
+  assert.equal(p.get('forgetKey').disabled,true);
+  assert.equal(p.get('input').value,'');
+  assert.equal(p.get('system').value,'');
+  assert.equal(p.get('send').disabled,true);
+  assert.equal(p.get('input').disabled,true);
+  assert.equal(p.stored['hub.chat.history'],undefined);
+  assert.deepEqual(p.redirects,[]);
+  wait.resolve(session()); await send;
+  assert.ok(p.calls.every(call=>call.url==='/hub/api/session'));
 });

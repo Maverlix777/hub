@@ -36,7 +36,7 @@ function createServer() { return http.createServer((req, res) => {
   // мок Worker API: сессия есть, выход даёт 204
   if (req.method === 'GET' && url === PREFIX + 'api/session') {
     if (!sessionOk) { res.writeHead(401, { 'content-type': 'application/json' }); res.end('{"error":"unauthorized"}'); return; }
-    res.writeHead(200, { 'content-type': 'application/json' }); res.end('{"username":"test","entitlement":"free"}'); return;
+    res.writeHead(200, { 'content-type': 'application/json' }); res.end('{"username":"test","entitlement":"free","apps":["board","chat","downloads"],"locked":[]}'); return;
   }
   if (req.method === 'POST' && url === PREFIX + 'api/logout') { res.writeHead(204); res.end(); return; }
   // Synthetic owner response for the board page visited by the traversal below.
@@ -57,6 +57,8 @@ function createServer() { return http.createServer((req, res) => {
     return;
   }
   let rel = url.slice(PREFIX.length);
+  // Model only the authorized-owner page route; real Worker tests own ACL checks.
+  if (rel === '') rel = 'apps/board.html';
   if (rel === 'login/') rel = 'login.html';
   if (rel === '' || rel.endsWith('/')) rel += 'index.html';
   const file = path.resolve(SITE_ROOT, rel);
@@ -83,7 +85,7 @@ async function main() {
     p.on('console', (m) => { if (/Content Security Policy|Refused to/i.test(m.text()) && !FRAME_ANCESTORS_META.test(m.text())) csp.push(m.text().slice(0, 120)); });
     p.on('pageerror', (e) => errs.push(String(e)));
 
-    await p.goto(BASE + PREFIX);
+    await p.goto(BASE + PREFIX + 'index.html');
     await p.waitForSelector('a.tile');
     const hrefs = await p.$$eval('a.tile', (n) => n.map((a) => a.getAttribute('href')));
     check(`[${w}] плитки = APPS (${apps.length})`, hrefs.length === apps.length && apps.every((a, i) => hrefs[i] === a.href), hrefs.join(' | '));
@@ -103,7 +105,7 @@ async function main() {
     for (const a of local) {
       await p.click(`a.tile[href="${a.href}"]`);
       await p.waitForLoadState('domcontentloaded');
-      check(`[${w}] «${a.title}» открылся под ${PREFIX}`, p.url() === BASE + PREFIX + a.href, p.url());
+      check(`[${w}] «${a.title}» открылся под ${PREFIX}`, p.url() === new URL(a.href, BASE + PREFIX).href, p.url());
       if (a.id === 'downloads') {
         await p.waitForSelector('li.dl, li.empty');
         const rows = await p.$$eval('li.dl h2', (n) => n.map((e) => e.textContent));
@@ -123,8 +125,12 @@ async function main() {
         check(`[${w}] board distinguishes persisted queue from unconfigured delivery`, (await p.textContent('#delivery-status')).includes('Канал GitHub Issues ещё не подключён'));
       }
       await p.click('#hub');
+      await p.waitForSelector('#columns .card');
+      check(`[${w}] brand returns to authorized root board from ${a.id}`, p.url() === BASE + PREFIX, p.url());
+      check(`[${w}] root board still renders fixture after brand navigation`, (await p.textContent('#columns')).includes('Synthetic board task'));
+      await p.click('#nav-apps');
       await p.waitForSelector('a.tile');
-      check(`[${w}] «← Хаб» из «${a.title}» ведёт на главную ${PREFIX}`, [BASE + PREFIX, BASE + PREFIX + 'index.html'].includes(p.url()), p.url());
+      check(`[${w}] explicit catalog navigation retained`, p.url() === BASE + PREFIX + 'index.html', p.url());
     }
 
     check(`[${w}] нет ответов ≥400 при обходе`, bad.length === 0, bad.join(' ; '));

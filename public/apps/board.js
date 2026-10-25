@@ -152,6 +152,7 @@
     $('refresh').disabled = true;
     $('status').textContent = 'Доступ завершён. Войди снова, чтобы открыть личную доску.';
     $('delivery-status').textContent = 'Очередь скрыта: требуется разрешённая учётная запись.';
+    if (typeof Event === 'function' && typeof window.dispatchEvent === 'function') window.dispatchEvent(new Event('hub:session-ended'));
   }
   async function api(path, options) {
     const generation = authGeneration; requireActiveSession(generation);
@@ -377,6 +378,7 @@
     else if (!event.shiftKey && document.activeElement === last) { event.preventDefault(); first.focus(); }
   });
   window.addEventListener('popstate',restoreHistory);
+  window.addEventListener('hub:session-ended',invalidateSession);
   window.addEventListener('beforeunload',(event) => { if ([...drafts.values()].some((draft) => draft.text || draft.payload)) { event.preventDefault(); event.returnValue = ''; } });
   setupForm($('message-form'),'message',null,'message');
   window.setInterval(() => { if (!document.hidden) load(); },60000);
