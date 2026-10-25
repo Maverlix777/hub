@@ -5,6 +5,7 @@ const assert = require('node:assert/strict');
 const fs = require('node:fs');
 const path = require('node:path');
 const http = require('node:http');
+const syntheticSession = {username:'synthetic-owner',apps:['board','chat','downloads'],locked:[]};
 (async () => {
   const root = path.resolve(__dirname,'../public');
   const server = http.createServer((req,res) => {
@@ -22,6 +23,7 @@ const http = require('node:http');
     const card={key:'fixture::DEMO-1',id:'DEMO-1',title:'Безопасный вопрос владельцу',source:'Synthetic',column:'questions',state:'Needs-owner',owner:'Demo',sourcePath:'fixtures/BOARD.md',sourceRevision:'a'.repeat(40),description:'Контекст <img src=x onerror=alert(1)>',history:['Создано для проверки'],evidence:[{label:'Synthetic evidence',url:'https://example.org/evidence'},{label:'Unsafe',url:'javascript:alert(1)'}],blockers:['Нужен ответ']};
     await page.route('**/hub/api/**',async route => {
       const req=route.request(); const url=new URL(req.url());
+      if(url.pathname.endsWith('/session')) return route.fulfill({json:syntheticSession});
       if(url.pathname.endsWith('/board')) return route.fulfill({json:{cards:[card,{...card,key:'fixture::DEMO-2',id:'DEMO-2',title:'Проверить результат',column:'review'}],sources:[{path:'fixtures/BOARD.md',status:'available',cardCount:2}],telemetry:{status:'unknown',reason:'stale'}}});
       if(req.method()==='GET') return route.fulfill({json:{items,delivery:{status:'not_configured'}}});
       const data=req.postDataJSON(); requests++;
@@ -70,8 +72,10 @@ const http = require('node:http');
       const boardData = {cards:[privateCard],sources:[],telemetry:{status:'available',as_of:new Date().toISOString(),events:[{task_id:'PRIVATE_EVENT',state:'running'}]}};
       const outboxData = {items:[{id:'private-receipt',kind:'message',text:'PRIVATE_MESSAGE',status:'pending'}]};
       await race.route('**/hub/api/**',async route => {
-        const req=route.request(); const isBoard=new URL(req.url()).pathname.endsWith('/board'); const isPost=req.method()==='POST';
-        const shouldHold=armed && ((delayed==='board' && isBoard) || (delayed==='outbox' && !isBoard && !isPost) || (delayed==='post' && isPost));
+        const req=route.request(); const pathname=new URL(req.url()).pathname;
+        if(pathname.endsWith('/session')) return route.fulfill({json:syntheticSession});
+        const isBoard=pathname.endsWith('/board'); const isOutbox=pathname.endsWith('/outbox'); const isPost=isOutbox && req.method()==='POST';
+        const shouldHold=armed && ((delayed==='board' && isBoard) || (delayed==='outbox' && isOutbox && !isPost) || (delayed==='post' && isPost));
         if(shouldHold) {held=route;capture();return;}
         if(armed && ((delayed==='post' && isBoard) || (delayed!=='post' && isPost))) return route.fulfill({status:403,json:{error:'forbidden'}});
         return route.fulfill({json:isBoard ? boardData : outboxData});
@@ -107,7 +111,7 @@ const http = require('node:http');
       const receipt = index === 0
         ? {kind:'issue',url:'https://github.com/Maverlix777/agent-handoffs/issues/123',issueNumber:123,commentId:null,deliveredAt:Date.now()}
         : {kind:'comment',url:'https://github.com/Maverlix777/agent-handoffs/issues/123#issuecomment-456',issueNumber:123,commentId:456,deliveredAt:Date.now()};
-      await authorPage.route('**/hub/api/**',route => route.fulfill({json:route.request().url().endsWith('/board') ? {cards:[],sources:[]} : {
+      await authorPage.route('**/hub/api/**',route => route.fulfill({json:route.request().url().endsWith('/session') ? {...syntheticSession,username} : route.request().url().endsWith('/board') ? {cards:[],sources:[]} : {
         items:[{id:`author-${index}`,kind:'message',text:'Synthetic authored message',author,status:'synced',receipt,agentAck:null,agentResult:null},
           {id:'legacy',kind:'message',text:'Legacy receipt',status:'synced',receipt:{url:'https://github.com/Maverlix777/agent-handoffs/blob/abc/file.md',commit:'abc'}}],
         delivery:{status:'not_configured'}}}));
@@ -125,6 +129,7 @@ const http = require('node:http');
     console.log('PASS: two synthetic author snapshots, issue/comment receipts, SAVED/DELIVERED/ACK/RESULT separation; legacy Markdown receipt not treated as Issues delivery.');
     const polling = await browser.newPage(); let submitted=null; let postCount=0; let receiptReads=0;
     await polling.route('**/hub/api/**',route => {
+      if(route.request().url().endsWith('/session')) return route.fulfill({json:syntheticSession});
       if(route.request().url().endsWith('/board')) return route.fulfill({json:{cards:[],sources:[]}});
       if(route.request().method()==='POST') {
         postCount++; submitted={...route.request().postDataJSON(),id:'poll-receipt',status:'pending',author:{hubUsername:'synthetic-author'}};
@@ -146,6 +151,7 @@ const http = require('node:http');
     const retryPage=await browser.newPage(); let retries=0;
     const failedItem={id:'persisted-error',idempotencyKey:'11111111-1111-4111-8111-111111111111',kind:'answer',text:'Persisted synthetic answer',target:{sourcePath:'fixtures/BOARD.md',taskId:'DEMO-1',revision:'a'.repeat(40)},status:'error',error:'delivery_uncertain'};
     await retryPage.route('**/hub/api/**',route => {
+      if(route.request().url().endsWith('/session')) return route.fulfill({json:syntheticSession});
       if(route.request().url().endsWith('/board')) return route.fulfill({json:{cards:[],sources:[]}});
       if(route.request().method()==='POST') {
         retries++; assert.deepEqual(route.request().postDataJSON(),{idempotencyKey:failedItem.idempotencyKey,kind:failedItem.kind,text:failedItem.text,target:failedItem.target});
@@ -165,6 +171,7 @@ const http = require('node:http');
     const pendingItem={id:'persisted-pending',idempotencyKey:'22222222-2222-4222-8222-222222222222',kind:'message',text:'Saved while delivery disabled',status:'pending',target:null};
     const resumeReceipt={kind:'issue',url:'https://github.com/Maverlix777/agent-handoffs/issues/124',issueNumber:124,commentId:null,deliveredAt:Date.now()};
     await resumePage.route('**/hub/api/**',route => {
+      if(route.request().url().endsWith('/session')) return route.fulfill({json:syntheticSession});
       if(route.request().url().endsWith('/board')) return route.fulfill({json:{cards:[],sources:[]}});
       if(route.request().method()==='POST') {
         resumePosts++; assert.deepEqual(route.request().postDataJSON(),{idempotencyKey:pendingItem.idempotencyKey,kind:pendingItem.kind,text:pendingItem.text});
