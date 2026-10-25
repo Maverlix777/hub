@@ -9,6 +9,11 @@ test('subpath trap serves the synthetic board API and still rejects missing rout
   await new Promise((resolve) => server.listen(0, '127.0.0.1', resolve));
   const base = `http://127.0.0.1:${server.address().port}`;
   try {
+    const session = await (await fetch(`${base}/hub/api/session`)).json();
+    assert.deepEqual(session.apps, ['board', 'chat', 'downloads']);
+    assert.match(await (await fetch(`${base}/hub/`)).text(), /id="columns"/);
+    assert.match(await (await fetch(`${base}/hub/index.html`)).text(), /id="grid"/);
+    assert.match(await (await fetch(`${base}/hub/apps/board.html`)).text(), /id="columns"/);
     const response = await fetch(`${base}/hub/api/board`);
     assert.equal(response.status, 200);
     const body = await response.json();
