@@ -6,7 +6,7 @@
   const drafts = new Map();
   let cards = []; let sources = []; let items = []; let loading = false; let openKey = null;
   let focusBefore = null; let lastRead = null; let outboxAvailable = false; let nextCursor = null;
-  let authGeneration = 0; let authInvalid = false;
+  let authGeneration = 0; let authInvalid = false; let boardFailure = '';
   const receiptChecks = new Map();
   const deliveryRetries = new Set();
   const cardKey = (card) => card.key || `${card.sourcePath || card.source}::${card.id}`;
@@ -40,15 +40,43 @@
     node.replaceChildren(...list.map(cardButton));
     if (!list.length) node.append(el('li', 'empty', empty));
   }
+  const COLLAPSE_KEY = 'hub.board.collapsed';
+  function readCollapsed() {
+    try { const value = JSON.parse(localStorage.getItem(COLLAPSE_KEY) || '[]'); return new Set(Array.isArray(value) ? value.filter((k) => typeof k === 'string') : []); } catch { return new Set(); }
+  }
+  function toggleColumn(key) {
+    const set = readCollapsed();
+    if (set.has(key)) set.delete(key); else set.add(key);
+    try { localStorage.setItem(COLLAPSE_KEY, JSON.stringify([...set])); } catch { /* storage may be blocked */ }
+    render();
+    const again = document.querySelector(`.col-toggle[data-col="${key}"]`); if (again) again.focus();
+  }
+  function renderErrors(message) {
+    const box = $('board-errors'); if (!box) return;
+    const lines = [];
+    if (message) lines.push(message);
+    for (const source of sources) {
+      if (source.status === 'error') lines.push(`Источник «${source.path || source.name || 'без имени'}»: ошибка загрузки${source.error ? ` (${/^[a-z0-9_]{1,40}$/.test(source.error) ? source.error : 'неизвестно'})` : ''}. Нули в колонках ниже недостоверны.`);
+      else if (source.status === 'unsupported') lines.push(`Источник «${source.path || source.name || 'без имени'}»: формат не распознан.`);
+    }
+    box.replaceChildren(...lines.map((line) => el('p', 'error', line))); box.hidden = !lines.length;
+  }
   function render() {
     const query = $('q').value.trim().toLowerCase();
     const shown = cards.filter((card) => !query || `${card.id} ${card.title} ${card.owner || card.who} ${card.state} ${card.description || ''}`.toLowerCase().includes(query));
     $('columns').replaceChildren();
+    const collapsed = readCollapsed();
     for (const [key, label] of columns) {
       const rows = shown.filter((card) => card.column === key);
-      const section = el('section', `col ${key}`); const heading = el('h3', '', label);
-      heading.append(el('span', 'count', rows.length)); section.append(heading);
-      const ul = el('ul'); fillList(ul, key === 'done' ? rows.slice().reverse() : rows, query ? 'Нет совпадений' : 'Пока нет задач');
+      const isCollapsed = collapsed.has(key);
+      const section = el('section', `col ${key}${isCollapsed ? ' collapsed' : ''}`); const heading = el('h3');
+      const toggle = el('button', 'col-toggle'); toggle.type = 'button'; toggle.dataset.col = key;
+      toggle.setAttribute('aria-expanded', String(!isCollapsed)); toggle.setAttribute('aria-controls', `col-${key}`);
+      toggle.append(el('span', 'col-label', label), el('span', 'count', rows.length), el('span', 'chev', ''));
+      toggle.addEventListener('click', () => toggleColumn(key));
+      heading.append(toggle); section.append(heading);
+      const ul = el('ul'); ul.id = `col-${key}`; ul.hidden = isCollapsed;
+      fillList(ul, key === 'done' ? rows.slice().reverse() : rows, query ? 'Нет совпадений' : 'Пока нет задач');
       section.append(ul); $('columns').append(section);
     }
     const questions = shown.filter((card) => card.column === 'questions');
@@ -58,7 +86,7 @@
     $('idea-count').textContent = String(ideas.length);
     const incomplete = sources.some((source) => ['error', 'unsupported'].includes(source.status));
     fillList($('idea-list'), ideas, query ? 'Нет совпадений' : incomplete ? 'Идеи не прочитаны полностью. Проверь состояния источников ниже.' : sources.length ? 'В прочитанных источниках идей нет' : 'Источники идей не подтверждены');
-    renderSources();
+    renderSources(); if (cards.length || sources.length) renderErrors(boardFailure);
   }
   function renderSources() {
     const details = el('details'); details.append(el('summary', '', `Источники: ${sources.length}`));
@@ -98,6 +126,7 @@
     const title = el('h2', '', card.title || 'Без названия'); title.id = 'detail-title'; content.append(title);
     const metadata = el('dl', 'metric-list');
     metric(metadata, 'Исполнитель', card.owner || card.who); metric(metadata, 'Статус', card.state);
+    if (['progress', 'review'].includes(card.column)) metric(metadata, 'Время в статусе', card.statusAgeLabel || 'нет данных');
     metric(metadata, 'Источник', card.sourcePath || card.source); metric(metadata, 'Версия источника', card.sourceRevision);
     content.append(metadata);
     const source = safeLink(card.sourceUrl, 'Открыть исходный документ ↗'); if (source) content.append(source);
@@ -148,6 +177,8 @@
     $('q').value = ''; $('q').disabled = true;
     $('message-text').value = ''; $('message-text').disabled = true;
     $('message-form').querySelector('button').disabled = true;
+    for (const id of ['snezhana-text','snezhana-to']) { const node = $(id); if (node) { node.value = id === 'snezhana-to' ? 'idea' : ''; node.disabled = true; } }
+    const sbtn = document.querySelector('#snezhana-form button[type="submit"]'); if (sbtn) sbtn.disabled = true;
     $('message-form').querySelector('.form-status').textContent = '';
     $('refresh').disabled = true;
     $('status').textContent = 'Доступ завершён. Войди снова, чтобы открыть личную доску.';
@@ -185,15 +216,16 @@
     // An uncertain network result must retain its original immutable payload/key.
     if (!draft.payload && target?.revision !== draft.targetRevision) { draft.blocked = false; draft.targetRevision = target?.revision; }
     textarea.value = draft.text;
-    textarea.readOnly = Boolean(draft.payload); submit.disabled = draft.busy || Boolean(draft.blocked);
+    const picker = form.querySelector('select'); const lock = (v) => { textarea.readOnly = v; if (picker) picker.disabled = v; };
+    lock(Boolean(draft.payload)); submit.disabled = draft.busy || Boolean(draft.blocked);
     if (draft.payload) { submit.textContent = 'Повторить сохранение'; status.textContent = 'Предыдущая отправка не подтверждена. Повтор использует тот же идентификатор и текст.'; }
     textarea.addEventListener('input', () => { draft.text = textarea.value; });
     form.addEventListener('submit', async (event) => {
       event.preventDefault(); if (draft.busy || authInvalid) return;
       if (!textarea.value.trim()) { textarea.setCustomValidity('Введи текст сообщения.'); textarea.reportValidity(); return; }
       textarea.setCustomValidity('');
-      if (!draft.payload) draft.payload = {idempotencyKey:crypto.randomUUID(),kind,text:textarea.value.trim(),...(target ? {target} : {})};
-      draft.busy = true; submit.disabled = true; textarea.readOnly = true;
+      if (!draft.payload) draft.payload = {idempotencyKey:crypto.randomUUID(),kind,text:textarea.value.trim(),...(target ? {target} : {}),...(picker && picker.value !== 'idea' ? {addressee:picker.value} : {})};
+      draft.busy = true; submit.disabled = true; lock(true);
       status.className = 'form-status'; status.textContent = 'Сохраняем…';
       try {
         const result = await api('outbox', {method:'POST',headers:{'Content-Type':'application/json','X-Hub-Request':'1'},body:JSON.stringify(draft.payload)});
@@ -201,14 +233,14 @@
         if (!result.item?.id) throw new Error('invalid_receipt');
         items = [result.item,...items.filter((item) => item.id !== result.item.id)]; renderOutbox();
         status.className = 'form-status success'; status.textContent = result.item.status === 'synced' && issueReceipt(result.item.receipt) ? 'Сохранено и доставлено в GitHub Issues. Ответ исполнителя и результат проверяются отдельно.' : 'Сохранено в очереди. Доставка в GitHub Issues ещё не подтверждена.';
-        draft.text = ''; draft.payload = null; textarea.value = ''; textarea.readOnly = false; submit.textContent = kind === 'answer' ? 'Сохранить ответ' : 'Сохранить сообщение';
+        draft.text = ''; draft.payload = null; textarea.value = ''; lock(false); submit.textContent = kind === 'answer' ? 'Сохранить ответ' : 'Сохранить сообщение';
         if (result.item.status === 'pending') checkReceipt(result.item.id);
       } catch (error) {
         if (authInvalid) return;
         status.className = 'form-status error'; status.textContent = errors[error.code] || 'Сохранение не подтверждено. Текст остаётся в этой вкладке. Повтори запрос с тем же идентификатором.';
         submit.textContent = 'Повторить сохранение';
         if (['invalid_payload','invalid_target','target_conflict'].includes(error.code)) {
-          draft.payload = null; textarea.readOnly = false;
+          draft.payload = null; lock(false);
           if (error.code !== 'invalid_payload') { draft.blocked = true; }
         }
       } finally { draft.busy = false; submit.disabled = authInvalid || Boolean(draft.blocked); }
@@ -387,11 +419,12 @@
     $('status').textContent = lastRead ? `Обновляем… Последнее чтение: ${date(lastRead)}` : 'Загружаем доску…';
     try {
       const board = await api('board'); requireActiveSession(); cards = Array.isArray(board.cards) ? board.cards : []; sources = Array.isArray(board.sources) ? board.sources : [];
-      lastRead = new Date().toISOString();
+      lastRead = new Date().toISOString(); boardFailure = '';
       $('status').className = 'status'; $('status').textContent = `Карточек: ${cards.length}. Прочитано: ${date(lastRead)}${board.unmappedCount ? `. Не распознано строк: ${board.unmappedCount}` : ''}`;
       render(); renderTelemetry(board.telemetry); restoreHistory();
     } catch (error) {
       if (authInvalid) return;
+      boardFailure = `Не удалось прочитать доску: ${error?.code || error?.message || 'сеть недоступна'}. Это не значит, что задач нет.`; renderErrors(boardFailure);
       $('status').className = 'status error'; $('status').textContent = `Не удалось обновить доску.${lastRead ? ` Показан старый снимок от ${date(lastRead)}.` : ' Данные не прочитаны.'}`;
       if (!lastRead) { $('question-list').replaceChildren(el('li','error','Вопросы не загружены')); $('idea-list').replaceChildren(el('li','error','Ошибка чтения источников; это не означает отсутствие идей.')); $('columns').replaceChildren(el('p','error','Доска недоступна. Нажми «Обновить», чтобы повторить.')); }
     } finally { loading = false; $('refresh').disabled = authInvalid; $('columns').setAttribute('aria-busy','false'); }
@@ -412,6 +445,10 @@
   window.addEventListener('hub:session-ended',invalidateSession);
   window.addEventListener('beforeunload',(event) => { if ([...drafts.values()].some((draft) => draft.text || draft.payload)) { event.preventDefault(); event.returnValue = ''; } });
   setupForm($('message-form'),'message',null,'message');
+  setupForm($('snezhana-form'),'message',null,'snezhana');
+  function setPanel(open) { $('snezhana-body').hidden = !open; $('snezhana-toggle').setAttribute('aria-expanded', String(open)); try { localStorage.setItem('hub.board.snezhana', open ? '1' : '0'); } catch { /* ignore */ } }
+  $('snezhana-toggle').addEventListener('click',() => setPanel($('snezhana-body').hidden));
+  setPanel((() => { try { return localStorage.getItem('hub.board.snezhana') !== '0'; } catch { return true; } })());
   window.setInterval(() => { if (!document.hidden) load(); },60000);
   document.addEventListener('visibilitychange',() => { if (!document.hidden) load(); });
   load();

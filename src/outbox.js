@@ -3,6 +3,9 @@ const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-
 // Keep target grammar aligned with the existing-writer delivery adapter.
 const REVISION = /^[0-9a-f]{40}$/;
 const PATH = /^[a-zA-Z0-9][a-zA-Z0-9_./-]*\.md$/;
+// Owner may address a message to one executor. Absent or 'idea' means a plain idea (label `idea`, no execution).
+export const ADDRESSEES = Object.freeze(['claude', 'codex', 'snezhana', 'pedro', 'mazila']);
+
 const ERROR_CODES = new Set(['delivery_conflict', 'delivery_unavailable', 'delivery_uncertain',
   'delivery_unavailable_github_401', 'delivery_unavailable_github_403', 'delivery_unavailable_github_404',
   'delivery_unavailable_github_429', 'delivery_unavailable_github_5xx', 'delivery_unavailable_github_other_http',
@@ -14,13 +17,20 @@ function exactKeys(value, keys) {
 }
 
 export function validatePayload(value) {
-  if (!exactKeys(value, ['idempotencyKey', 'kind', 'text', 'target'])
+  if (!exactKeys(value, ['idempotencyKey', 'kind', 'text', 'target', 'addressee'])
     || typeof value.idempotencyKey !== 'string' || !UUID.test(value.idempotencyKey)
     || !['answer', 'message'].includes(value.kind)
     || typeof value.text !== 'string' || !value.text.trim() || value.text.length > 8000
     || /[\u0000-\u0008\u000b\u000c\u000e-\u001f\u007f]/.test(value.text)) return null;
   let target = null;
   if (value.kind === 'message' && value.target != null) return null;
+  let addressee = null;
+  if (value.addressee !== undefined && value.addressee !== null) {
+    // Server-side allowlist: only a message can be addressed; 'idea' is the explicit no-worker choice.
+    if (value.kind !== 'message' || typeof value.addressee !== 'string'
+      || ![...ADDRESSEES, 'idea'].includes(value.addressee)) return null;
+    if (value.addressee !== 'idea') addressee = value.addressee;
+  }
   if (value.target !== undefined && value.target !== null) {
     const t = value.target;
     if (!exactKeys(t, ['sourcePath', 'taskId', 'revision'])
@@ -31,7 +41,7 @@ export function validatePayload(value) {
     target = { sourcePath: t.sourcePath, taskId: t.taskId, revision: t.revision };
   }
   if (value.kind === 'answer' && !target) return null;
-  return { idempotencyKey: value.idempotencyKey.toLowerCase(), kind: value.kind, text: value.text, target };
+  return { idempotencyKey: value.idempotencyKey.toLowerCase(), kind: value.kind, text: value.text, target, ...(addressee ? { addressee } : {}) };
 }
 
 function rowToItem(row) {
@@ -49,7 +59,8 @@ function rowToItem(row) {
   };
 }
 
-const payloadJson = (payload) => JSON.stringify({ kind: payload.kind, text: payload.text, target: payload.target });
+const payloadJson = (payload) => JSON.stringify({ kind: payload.kind, text: payload.text, target: payload.target,
+  ...(payload.addressee ? { addressee: payload.addressee } : {}) });
 
 // Read-before-validation permits a retry of an already persisted answer after its source changes.
 export async function existingSubmission(db, ownerId, payload) {
