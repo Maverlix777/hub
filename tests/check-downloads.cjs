@@ -36,7 +36,7 @@ if (!kb || kb.available === false ||
   errors.push('Krenkballs build 75 catalog entry does not match the verified artifact');
 }
 const doktor = items.find((it) => it.project === 'Доктор' && it.version === '1.0.3');
-if (!doktor || doktor.url !== 'https://github.com/Maverlix777/doktor-sidestore/releases/latest' ||
+if (!doktor || doktor.url !== 'https://github.com/Maverlix777/doktor-sidestore/releases/download/v1.0.3/Doktor.ipa' ||
     doktor.size !== 6565410 || doktor.date !== '2026-10-18' ||
     doktor.sha256 !== '13a7480f5904c97261b6bdebf65a61f45e1178e673c629165008f4c9bc60b67c') {
   errors.push('Doktor 1.0.3 must match public apps.json metadata');

@@ -164,8 +164,14 @@ const web = http.createServer((req, res) => {
       const reg = await page.evaluate(() => JSON.parse(document.getElementById('manifest').textContent));
       const cards = await page.locator('.dl').count();
       check(`${width}px: «Загрузки» показывают доступные и ожидающие записи из реестра`, cards === reg.length && cards >= 3, cards);
-      const unavailableLinks = await page.locator('.dl').filter({ hasText: 'Nebula Pop' }).locator('a.btn').count();
-      check(`${width}px: недоступная Nebula Pop не показывает «Скачать»`, unavailableLinks === 0, unavailableLinks);
+      const nebulaAndroid = reg.findIndex((item) => item.project === 'Nebula Pop' && item.platform.toLowerCase() === 'android');
+      const unavailableLinks = nebulaAndroid < 0 ? -1 : await page.locator('.dl').nth(nebulaAndroid).locator('a.btn').count();
+      check(`${width}px: недоступная Nebula Pop Android не показывает «Скачать»`,
+        nebulaAndroid >= 0 && reg[nebulaAndroid].available === false && unavailableLinks === 0, unavailableLinks);
+      const nebulaIOS = reg.findIndex((item) => item.project === 'Nebula Pop' && item.platform.toLowerCase() === 'ios');
+      const iosLinks = nebulaIOS < 0 ? [] : await page.locator('.dl').nth(nebulaIOS).locator('a.btn').evaluateAll((links) => links.map((link) => link.href));
+      check(`${width}px: доступная Nebula Pop iOS показывает точную ссылку из реестра`,
+        nebulaIOS >= 0 && reg[nebulaIOS].available !== false && iosLinks.length === 1 && iosLinks[0] === reg[nebulaIOS].url, iosLinks.join(' | '));
       const lfDownload = await page.locator('.dl').filter({ hasText: 'Location Fusion Test' }).locator('a.btn').evaluate((e) => e.href + '|' + e.rel);
       check(`${width}px: build 9 ведёт на публичный IPA с noopener`,
         lfDownload === 'https://kolobovdjp.org/locationfusion/install/LocationFusion-Test-build9-UI.ipa|noopener noreferrer', lfDownload);
@@ -177,8 +183,11 @@ const web = http.createServer((req, res) => {
       check(`${width}px: «Загрузки» все ссылки https и noopener (кнопок: ${regLinks})`,
         dlAll.length === regLinks && dlAll.every((d) => /^https:\/\/[^|]+\|noopener noreferrer$/.test(d)), dlAll.join(' ; '));
       await page.fill('#q', 'nebula');
-      const none = await page.locator('.dl').count();
-      check(`${width}px: «Загрузки» поиск отсекает лишнее`, none === 1, none);
+      const expectedSearch = reg.filter((item) => [item.project, item.platform, item.kind, item.version, item.note].join(' ').toLowerCase().includes('nebula'));
+      const searchHeadings = await page.locator('.dl h2').allTextContents();
+      const expectedHeadings = expectedSearch.map((item) => item.project + ' ' + item.version);
+      check(`${width}px: «Загрузки» поиск показывает ровно совпавшие записи реестра`,
+        JSON.stringify(searchHeadings) === JSON.stringify(expectedHeadings), searchHeadings.join(' | '));
       const ov3 = await page.evaluate(() => document.documentElement.scrollWidth - window.innerWidth);
       check(`${width}px: «Загрузки» без горизонтального скролла`, ov3 <= 0, ov3);
       await page.locator('#hub').click();
