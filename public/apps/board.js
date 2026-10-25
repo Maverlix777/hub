@@ -126,6 +126,7 @@
     const title = el('h2', '', card.title || 'Без названия'); title.id = 'detail-title'; content.append(title);
     const metadata = el('dl', 'metric-list');
     metric(metadata, 'Исполнитель', card.owner || card.who); metric(metadata, 'Статус', card.state);
+    if (['progress', 'review'].includes(card.column)) metric(metadata, 'Время в статусе', card.statusAgeLabel || 'нет данных');
     metric(metadata, 'Источник', card.sourcePath || card.source); metric(metadata, 'Версия источника', card.sourceRevision);
     content.append(metadata);
     const source = safeLink(card.sourceUrl, 'Открыть исходный документ ↗'); if (source) content.append(source);

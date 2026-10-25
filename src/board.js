@@ -27,6 +27,21 @@ export function columnForState(state, text = '') {
   if (word === 'blocked') return OWNER_WORDS.test(`${state} ${text}`) ? 'questions' : 'progress';
   return null;
 }
+// Optional date inside the state cell: "2026-10-25", "2026-10-25 20:30 UTC", "2026-10-25T20:30Z".
+export function parseStatusSince(text) {
+  const m = /(\d{4})-(\d{2})-(\d{2})(?:[T ](\d{2}):(\d{2}))?/.exec(String(text || ''));
+  if (!m) return '';
+  const [y, mo, d, h = 0, mi = 0] = m.slice(1).map(Number);
+  const t = new Date(Date.UTC(y, mo - 1, d, h, mi));
+  if (t.getUTCFullYear() !== y || t.getUTCMonth() !== mo - 1 || t.getUTCDate() !== d || h > 23 || mi > 59) return '';
+  return t.toISOString();
+}
+export function statusAgeLabel(since, now = Date.now()) {
+  const t = Date.parse(since || '');
+  if (!Number.isFinite(t) || t - now > 5 * 60000) return 'нет данных';
+  const hours = Math.max(0, Math.floor((now - t) / 3600000));
+  return hours < 48 ? `в статусе ${hours} ч` : `в статусе ${Math.floor(hours / 24)} дн`;
+}
 function links(text, baseUrl) {
   const found = [];
   for (const match of String(text).matchAll(/\[([^\]]+)\]\(([^\s)]+)\)/g)) {
@@ -42,7 +57,7 @@ function detail(card, metadata, raw, line) {
   return { ...card, key: `${sourcePath || card.source}::${card.id}`, owner: card.who,
     sourcePath, sourceRevision: metadata.revision || '', sourceUrl: metadata.url || '', provenance: metadata.provenance || '', line,
     description: plain(raw), history: [], evidence: links(raw, metadata.url),
-    blockers: /^blocked|^needs.owner/i.test(card.state) ? [plain(raw)] : [],
+    statusSince: parseStatusSince(card.state), blockers: /^blocked|^needs.owner/i.test(card.state) ? [plain(raw)] : [],
   };
 }
 export function parseBoard(text, source = 'board', metadata = {}) {
@@ -78,11 +93,11 @@ export function countColumns(cards) {
   for (const card of cards) if (Object.hasOwn(counts, card.column)) counts[card.column]++;
   return counts;
 }
-export function buildBoard(sources) {
+export function buildBoard(sources, now = Date.now()) {
   const cards = []; let unmappedCount = 0; const summaries = [];
   for (const s of sources) {
     const parsed = s.error ? {cards: [], unmapped: []} : parseBoard(s.text, s.name, s);
-    cards.push(...parsed.cards); unmappedCount += parsed.unmapped.length;
+    cards.push(...parsed.cards.map(c => ['progress', 'review'].includes(c.column) ? {...c, statusAgeLabel: statusAgeLabel(c.statusSince, now)} : c)); unmappedCount += parsed.unmapped.length;
     summaries.push({ name: s.name, path: s.path || '', url: s.url || '', revision: s.revision || '',
       status: s.error ? 'error' : parsed.cards.length ? 'available' : String(s.text || '').trim() ? 'unsupported' : 'empty',
       cardCount: parsed.cards.length, unmappedCount: parsed.unmapped.length, ...(s.error ? {error: s.error} : {}) });
