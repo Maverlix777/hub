@@ -247,11 +247,11 @@ const web = http.createServer((req, res) => {
       const page = await ctx.newPage(); watch(page);
       await page.goto(`${SITE}index.html`);
       const bg = await page.evaluate(() => getComputedStyle(document.body).backgroundColor);
-      check('тёмная тема: фон хаба', bg === 'rgb(20, 20, 19)', bg);
+      check('системная тёмная тема: хаб сохраняет согласованный светлый фон', bg === 'rgb(243, 245, 249)', bg);
       await page.screenshot({ path: path.join(SHOTS, 'hub-390-dark.png'), fullPage: true });
       await page.goto(`${SITE}apps/chat.html`);
       const bg2 = await page.evaluate(() => getComputedStyle(document.body).backgroundColor);
-      check('тёмная тема: фон чата', bg2 === 'rgb(20, 20, 19)', bg2);
+      check('системная тёмная тема: чат сохраняет согласованный светлый фон', bg2 === 'rgb(243, 245, 249)', bg2);
       await ctx.close();
     }
 

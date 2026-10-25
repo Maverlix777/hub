@@ -49,6 +49,8 @@ jobs:
         run: node --experimental-sqlite tests/hub-acceptance-browser.cjs
       - name: Check persisted pending recovery through existing delivery API
         run: node --experimental-sqlite tests/hub-acceptance-resume.cjs
+      - name: Check dashboard homepage, navigation, logout and responsive layout
+        run: node tests/dashboard-first.cjs
       - name: Upload synthetic Hub acceptance screenshots
         if: always()
         uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
