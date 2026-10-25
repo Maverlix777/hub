@@ -96,7 +96,7 @@ test('comment uncertain outcome reconciles direct comment readback', async () =>
 test('wrong/public repository metadata cannot receive owner input', async () => {
   for (const metadata of [{ full_name: REPO, private: false, visibility: 'public' }, { full_name: 'elsewhere/private', private: true, visibility: 'private' }]) {
     const h = harness(message, { handler(url) { if (url === API) return json(metadata); } });
-    assert.equal((await h.run()).error, 'delivery_unavailable'); assert.equal(h.state.posts, 0); assert.equal(h.state.intent, null);
+    assert.equal((await h.run()).error, 'delivery_unavailable_metadata'); assert.equal(h.state.posts, 0); assert.equal(h.state.intent, null);
   }
 });
 
@@ -148,7 +148,7 @@ test('failed independent GET after POST retains uncertain intent; later readback
 
 test('missing canonical idea label refuses posting and never creates labels or marks ready', async () => {
   const h = harness(message, { handler(url) { if (url === `${API}/labels/idea`) return json({}, 404); } });
-  assert.equal((await h.run()).error, 'delivery_unavailable'); assert.equal(h.state.posts, 0); assert.equal(h.state.intent, null);
+  assert.equal((await h.run()).error, 'delivery_unavailable_github_404'); assert.equal(h.state.posts, 0); assert.equal(h.state.intent, null);
 });
 
 test('no automatic execution labels appear for new owner ideas', async () => {
@@ -224,7 +224,7 @@ test('actual SQLite definitive readback conflict is terminal and retains intent 
 test('shared wall-clock budget stops before POST after slow preflight requests', async () => {
   let elapsed = 0;
   const h = harness(message, { handler() { elapsed += 13000; } });
-  assert.equal((await h.run(env, { clock: () => elapsed })).error, 'delivery_unavailable');
+  assert.equal((await h.run(env, { clock: () => elapsed })).error, 'delivery_unavailable_timeout');
   assert.equal(h.state.posts, 0); assert.equal(h.state.intent, null);
   assert.equal(h.state.calls.length, 2);
 });
@@ -245,7 +245,7 @@ test('oversized streamed response is cancelled while reading, before any POST', 
       cancel() { cancelled = true; },
     }));
   } });
-  assert.equal((await h.run()).error, 'delivery_unavailable'); assert.equal(h.state.posts, 0);
+  assert.equal((await h.run()).error, 'delivery_unavailable_malformed'); assert.equal(h.state.posts, 0);
   assert.equal(cancelled, true); assert.equal(h.state.intent, null);
 });
 
@@ -255,7 +255,91 @@ test('stalled response stream is bounded by total budget even when fetch already
     if (url === API) return new Response(new ReadableStream({ cancel() { cancelled = true; } }));
   } });
   const started = performance.now();
-  assert.equal((await h.run(env, { budgetMs: 30 })).error, 'delivery_unavailable');
+  assert.equal((await h.run(env, { budgetMs: 30 })).error, 'delivery_unavailable_timeout');
   assert.ok(performance.now() - started < 2000);
   assert.equal(cancelled, true); assert.equal(h.state.posts, 0);
+});
+
+test('preflight HTTP failure subtypes persist in existing SQLite error_code without reading response bodies', async t => {
+  const cases = [[401, 'github_401'], [403, 'github_403'], [404, 'github_404'], [429, 'github_429'],
+    [500, 'github_5xx'], [502, 'github_5xx'], [599, 'github_5xx'], [422, 'github_other_http'], [302, 'github_other_http']];
+  for (const [status, subtype] of cases) {
+    await t.test(String(status), async () => {
+      const f = sqliteFixture();
+      try {
+        const saved = await nativeStore.enqueue(f.db, 'local-user', { idempotencyKey: crypto.randomUUID(), kind: 'message', text: message.text, target: null }, 1000, message.author);
+        let calls = 0;
+        const result = await flushIssueDelivery(f.db, env, saved.item.id, { now: () => 1000, fetchImpl: async (_url, init) => {
+          calls++; assert.equal(init.method, 'GET');
+          return { status, ok: false, get body() { assert.fail('failed HTTP body must never be read'); } };
+        } });
+        const code = `delivery_unavailable_${subtype}`;
+        assert.deepEqual(result, { status: 'error', error: code });
+        const row = f.sqlite.prepare('SELECT status,error_code,delivery_phase,delivery_intent_json,receipt_json FROM owner_outbox WHERE id=?').get(saved.item.id);
+        assert.equal(row.status, 'error'); assert.equal(row.error_code, code); assert.equal(row.delivery_phase, 'idle');
+        assert.equal(row.delivery_intent_json, null); assert.equal(row.receipt_json, null); assert.equal(calls, 1);
+        assert.equal((await nativeStore.listSubmissions(f.db, 'local-user')).items[0].error, code);
+      } finally { f.sqlite.close(); }
+    });
+  }
+});
+
+test('preflight network and malformed subtypes discard arbitrary thrown text, bytes and response content', async () => {
+  const rawPrivate = 'synthetic-private-body-and-token-do-not-export';
+  const cases = [
+    ['network', () => { throw new Error(rawPrivate); }],
+    ['network', async () => { throw new Error('delivery_unavailable_github_401'); }],
+    ['malformed', () => new Response(rawPrivate)],
+    ['malformed', () => new Response(new Uint8Array([0xff, 0xfe]))],
+    ['malformed', () => new Response(null, { status: 204 })],
+    ['metadata', () => json({ full_name: rawPrivate, private: true, visibility: 'private', has_issues: true })],
+  ];
+  for (const [subtype, respond] of cases) {
+    const h = harness(message, { handler(url) { if (url === API) return respond(); } });
+    const result = await h.run();
+    assert.equal(result.error, `delivery_unavailable_${subtype}`);
+    assert.equal(h.state.outcome.error, result.error); assert.equal(h.state.posts, 0); assert.equal(h.state.intent, null);
+    assert.ok(!JSON.stringify([result, h.state.outcome]).includes(rawPrivate));
+  }
+});
+
+test('metadata mismatch is a closed subtype and no repository metadata fields are persisted', async () => {
+  const valid = { full_name: REPO, private: true, visibility: 'private', has_issues: true };
+  for (const metadata of [null, { ...valid, full_name: 'other/repository' }, { ...valid, private: false },
+    { ...valid, visibility: 'public' }, { ...valid, has_issues: false }]) {
+    const h = harness(message, { handler(url) { if (url === API) return json(metadata); } });
+    assert.deepEqual(await h.run(), { status: 'error', error: 'delivery_unavailable_metadata' });
+    assert.deepEqual(h.state.outcome, { status: 'error', receipt: null, error: 'delivery_unavailable_metadata' });
+    assert.equal(h.state.intent, null); assert.equal(h.state.posts, 0);
+  }
+});
+
+test('post-intent HTTP and malformed failures retain existing uncertain code and never become safe preflight retries', async () => {
+  for (const status of [401, 403, 404, 429, 503]) {
+    const h = harness(message, { handler(_url, init) { if (init.method === 'POST') return json({ message: 'synthetic confidential error' }, status); } });
+    assert.deepEqual(await h.run(), { status: 'error', error: 'delivery_uncertain' });
+    assert.ok(h.state.intent); assert.equal(h.state.uncertain, true);
+    const callsBefore = h.state.calls.length;
+    assert.equal((await h.run()).error, 'delivery_uncertain');
+    assert.ok(h.state.calls.slice(callsBefore).every(call => call.init.method === 'GET'));
+  }
+  const h = harness(message, { handler(url) { if (url === `${API}/issues/43`) return new Response('{not valid JSON'); } });
+  assert.equal((await h.run()).error, 'delivery_uncertain'); assert.ok(h.state.intent); assert.equal(h.state.uncertain, true);
+});
+
+test('SQLite diagnostic allowlist accepts only closed subtypes and still rejects arbitrary detail', async t => {
+  const f = sqliteFixture(); t.after(() => f.sqlite.close());
+  const saved = await nativeStore.enqueue(f.db, 'local-user', { idempotencyKey: crypto.randomUUID(), kind: 'message', text: message.text, target: null }, 1000, message.author);
+  for (const code of ['delivery_unavailable_github_401', 'delivery_unavailable_github_403', 'delivery_unavailable_github_404',
+    'delivery_unavailable_github_429', 'delivery_unavailable_github_5xx', 'delivery_unavailable_github_other_http',
+    'delivery_unavailable_timeout', 'delivery_unavailable_network', 'delivery_unavailable_malformed', 'delivery_unavailable_metadata']) {
+    const claim = await nativeStore.claimDelivery(f.db, saved.item.id, 1000);
+    assert.deepEqual(await nativeStore.finishDelivery(f.db, saved.item.id, claim.attempt, { status: 'error', receipt: null, error: code }, 1000), { applied: true });
+  }
+  const claim = await nativeStore.claimDelivery(f.db, saved.item.id, 1000);
+  for (const code of ['delivery_unavailable_token=private', 'delivery_unavailable_github_418', '<script>private</script>']) {
+    await assert.rejects(nativeStore.finishDelivery(f.db, saved.item.id, claim.attempt,
+      { status: 'error', receipt: null, error: code }, 1000), /invalid_delivery_result/);
+  }
+  assert.equal((await nativeStore.listSubmissions(f.db, 'local-user')).items[0].error, 'delivery_unavailable_metadata');
 });
