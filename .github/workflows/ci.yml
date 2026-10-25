@@ -43,6 +43,18 @@ jobs:
           key: playwright-${{ runner.os }}-${{ hashFiles('package-lock.json') }}
       - name: Install Playwright browser
         run: npx playwright install --with-deps chromium
+      - name: Check interactive board browser contract
+        run: node tests/board-ui-contract.cjs
+      - name: Check Hub browser against actual Worker and SQLite
+        run: node --experimental-sqlite tests/hub-acceptance-browser.cjs
+      - name: Upload synthetic Hub acceptance screenshots
+        if: always()
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
+        with:
+          name: hub-acceptance-screenshots
+          path: artifacts/hub/*.png
+          if-no-files-found: error
+          retention-days: 7
       - name: Allow the local mock API to bind HTTPS port 443
         run: sudo setcap cap_net_bind_service=+ep "$(command -v node)"
       - name: Check subpath behavior of the deployable artifact
