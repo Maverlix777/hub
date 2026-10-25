@@ -40,6 +40,9 @@ function rowToItem(row) {
     createdAt: row.created_at, updatedAt: row.updated_at,
     receipt: row.receipt_json ? JSON.parse(row.receipt_json) : null,
     error: row.error_code,
+    author: row.author_json ? JSON.parse(row.author_json) : null,
+    agentAck: null,
+    agentResult: null,
   };
 }
 
@@ -54,12 +57,12 @@ export async function existingSubmission(db, ownerId, payload) {
     ? { item: rowToItem(row), duplicate: true } : { error: 'idempotency_conflict' };
 }
 
-export async function enqueue(db, ownerId, payload, now = Date.now()) {
+export async function enqueue(db, ownerId, payload, now = Date.now(), author = null) {
   const id = crypto.randomUUID();
   await db.prepare(`INSERT INTO owner_outbox
-    (id, owner_id, idempotency_key, payload_json, created_at, updated_at)
-    VALUES (?, ?, ?, ?, ?, ?) ON CONFLICT(owner_id, idempotency_key) DO NOTHING`)
-    .bind(id, ownerId, payload.idempotencyKey, payloadJson(payload), now, now).run();
+    (id, owner_id, idempotency_key, payload_json, created_at, updated_at, author_json)
+    VALUES (?, ?, ?, ?, ?, ?, ?) ON CONFLICT(owner_id, idempotency_key) DO NOTHING`)
+    .bind(id, ownerId, payload.idempotencyKey, payloadJson(payload), now, now, author ? JSON.stringify(author) : null).run();
   const found = await existingSubmission(db, ownerId, payload);
   if (found?.item?.id === id) delete found.duplicate;
   return found;
@@ -99,8 +102,83 @@ export async function applyDeliveryResult(db, result, now = Date.now()) {
     || (result.status === 'synced' ? (!validReceipt(result.receipt) || result.error != null)
       : (!ERROR_CODES.has(result.error) || result.receipt != null))) throw new TypeError('invalid_delivery_result');
   const changed = await db.prepare(`UPDATE owner_outbox SET status = ?, receipt_json = ?, error_code = ?,
-    version = version + 1, updated_at = ? WHERE id = ? AND version = ? AND status != 'synced'`)
+    version = version + 1, updated_at = ? WHERE id = ? AND version = ? AND status != 'synced' AND delivery_phase = 'idle'`)
     .bind(result.status, result.receipt ? JSON.stringify(result.receipt) : null, result.error || null,
       now, result.id, result.expectedVersion).run();
+  return { applied: Number(changed?.meta?.changes || 0) === 1 };
+}
+
+function validIssueReceipt(receipt) {
+  if (!exactKeys(receipt, ['kind', 'url', 'issueNumber', 'commentId', 'deliveredAt'])
+    || !['issue', 'comment'].includes(receipt.kind)
+    || !Number.isSafeInteger(receipt.issueNumber) || receipt.issueNumber < 1
+    || !Number.isSafeInteger(receipt.deliveredAt) || receipt.deliveredAt < 0
+    || (receipt.kind === 'issue' ? receipt.commentId !== null : !Number.isSafeInteger(receipt.commentId) || receipt.commentId < 1)) return false;
+  const expected = `https://github.com/Maverlix777/agent-handoffs/issues/${receipt.issueNumber}`
+    + (receipt.kind === 'comment' ? `#issuecomment-${receipt.commentId}` : '');
+  return receipt.url === expected;
+}
+
+function validIntent(intent, id) {
+  if (!exactKeys(intent, ['schemaVersion', 'kind', 'issueNumber', 'marker', 'payloadHash', 'body', 'title'])
+    || intent.schemaVersion !== 1 || !['issue', 'comment'].includes(intent.kind)
+    || (intent.kind === 'issue' ? intent.issueNumber !== null : !Number.isSafeInteger(intent.issueNumber) || intent.issueNumber < 1)
+    || typeof intent.payloadHash !== 'string' || !/^[a-f0-9]{64}$/.test(intent.payloadHash)
+    || intent.marker !== `<!-- hub-outbox:${id}:${intent.payloadHash} -->`
+    || typeof intent.body !== 'string' || intent.body.length > 26000 || !intent.body.includes(intent.marker)
+    || intent.title !== `Hub message ${id.slice(0, 8)}`) return false;
+  return new TextEncoder().encode(JSON.stringify(intent)).byteLength <= 128 * 1024;
+}
+
+// A lease is obtained before any POST. An expired attempt with a durable intent is
+// reconciliation-only: lease expiry is never evidence that a remote POST failed.
+export async function claimDelivery(db, id, now = Date.now(), leaseMs = 60000) {
+  if (!UUID.test(id || '') || !Number.isSafeInteger(now) || now < 0
+    || !Number.isSafeInteger(leaseMs) || leaseMs < 1000 || leaseMs > 300000) throw new TypeError('invalid_delivery_claim');
+  const attempt = crypto.randomUUID();
+  const row = await db.prepare(`UPDATE owner_outbox SET delivery_phase = 'leased', delivery_attempt = ?, lease_until = ?
+    WHERE id = ? AND status IN ('pending', 'error') AND (delivery_phase = 'idle'
+      OR (delivery_phase IN ('leased', 'uncertain') AND COALESCE(lease_until, 0) <= ?)) RETURNING *`)
+    .bind(attempt, now + leaseMs, id, now).first();
+  if (!row) return null;
+  const intent = row.delivery_intent_json ? JSON.parse(row.delivery_intent_json) : null;
+  return { item: { ...rowToItem(row), deliveryIntent: intent }, attempt, mode: intent ? 'reconcile' : 'deliver', intent };
+}
+
+export async function beginDeliveryAttempt(db, id, attempt, intent, now = Date.now()) {
+  if (!UUID.test(id || '') || !UUID.test(attempt || '') || !validIntent(intent, id)) throw new TypeError('invalid_delivery_intent');
+  const result = await db.prepare(`UPDATE owner_outbox SET delivery_intent_json = ?, updated_at = ?
+    WHERE id = ? AND delivery_attempt = ? AND delivery_phase = 'leased' AND lease_until > ?
+      AND delivery_intent_json IS NULL AND status IN ('pending', 'error')
+      AND json_extract(payload_json, '$.kind') = ?`)
+    .bind(JSON.stringify(intent), now, id, attempt, now, intent.kind === 'issue' ? 'message' : 'answer').run();
+  return { applied: Number(result?.meta?.changes || 0) === 1 };
+}
+
+export async function markDeliveryUncertain(db, id, attempt, now = Date.now()) {
+  const result = await db.prepare(`UPDATE owner_outbox SET delivery_phase = 'uncertain', status = 'error',
+    error_code = 'delivery_uncertain', lease_until = ?, version = version + 1, updated_at = ?
+    WHERE id = ? AND delivery_attempt = ? AND delivery_phase = 'leased' AND delivery_intent_json IS NOT NULL AND status != 'synced'`)
+    .bind(now + 60000, now, id, attempt).run();
+  return { applied: Number(result?.meta?.changes || 0) === 1 };
+}
+
+// Only the server-side Issues transport calls this after an exact remote readback.
+// Browser input cannot submit receipts or select a delivery target/adapter.
+export async function finishDelivery(db, id, attempt, result, now = Date.now()) {
+  if (!UUID.test(id || '') || !UUID.test(attempt || '')
+    || !exactKeys(result, ['status', 'receipt', 'error']) || !['synced', 'error', 'conflict'].includes(result.status)
+    || (result.status === 'synced' ? !validIssueReceipt(result.receipt) || result.error != null
+      : !ERROR_CODES.has(result.error) || result.receipt != null)) throw new TypeError('invalid_delivery_result');
+  const changed = await db.prepare(`UPDATE owner_outbox SET status = ?, receipt_json = ?, error_code = ?,
+    version = version + 1, updated_at = ?, delivery_phase = CASE WHEN ? = 'synced' THEN 'delivered'
+      WHEN delivery_intent_json IS NULL THEN 'idle' ELSE 'uncertain' END, lease_until = ?
+    WHERE id = ? AND delivery_attempt = ? AND delivery_phase = 'leased' AND status != 'synced'
+      AND (? != 'synced' OR (delivery_intent_json IS NOT NULL
+        AND json_extract(delivery_intent_json, '$.kind') = ?
+        AND (? = 'issue' OR json_extract(delivery_intent_json, '$.issueNumber') = ?)))`)
+    .bind(result.status, result.receipt ? JSON.stringify(result.receipt) : null, result.error || null,
+      now, result.status, now + 60000, id, attempt, result.status,
+      result.receipt?.kind || null, result.receipt?.kind || null, result.receipt?.issueNumber || null).run();
   return { applied: Number(changed?.meta?.changes || 0) === 1 };
 }

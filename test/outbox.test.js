@@ -3,7 +3,8 @@ import { readFileSync } from 'node:fs';
 import { DatabaseSync } from 'node:sqlite';
 import { test } from 'node:test';
 import worker from '../src/worker.js';
-import { validatePayload, enqueue, existingSubmission, listSubmissions, applyDeliveryResult } from '../src/outbox.js';
+import { validatePayload, enqueue, existingSubmission, listSubmissions, applyDeliveryResult,
+  claimDelivery, beginDeliveryAttempt, markDeliveryUncertain, finishDelivery } from '../src/outbox.js';
 
 const origin = 'https://hub.kolobovdjp.org';
 const message = (overrides = {}) => ({ idempotencyKey: crypto.randomUUID(), kind: 'message', text: 'Synthetic safe message', ...overrides });
@@ -11,7 +12,10 @@ function fixture(migrate = true) {
   const sqlite = new DatabaseSync(':memory:');
   sqlite.exec('PRAGMA foreign_keys = ON');
   sqlite.exec(readFileSync(new URL('../migrations/0001_auth.sql', import.meta.url), 'utf8'));
-  if (migrate) sqlite.exec(readFileSync(new URL('../migrations/0002_owner_outbox.sql', import.meta.url), 'utf8'));
+  if (migrate) {
+    sqlite.exec(readFileSync(new URL('../migrations/0002_owner_outbox.sql', import.meta.url), 'utf8'));
+    sqlite.exec(readFileSync(new URL('../migrations/0003_owner_issues.sql', import.meta.url), 'utf8'));
+  }
   const statement = (sql, values = []) => ({
     bind(...args) { return statement(sql, args); },
     first() { return sqlite.prepare(sql).get(...values) || null; },
@@ -164,4 +168,88 @@ test('answers bind to a real source revision; drift fails while persisted retrie
   const unavailable = await post({ ...payload, idempotencyKey: crypto.randomUUID() });
   assert.equal(unavailable.status, 503); assert.equal((await unavailable.json()).error, 'board_unavailable');
   assert.equal(f.sqlite.prepare('SELECT count(*) n FROM owner_outbox').get().n, 1);
+});
+
+test('two explicitly mapped authors can submit; username-only impersonation and strangers cannot', async (t) => {
+  const f = fixture(); t.after(() => f.sqlite.close());
+  const owner = await f.session('owner'), danya = await f.session('danya'), stranger = await f.session('stranger');
+  const authors = [{ hubUserId: 'owner', hubUsername: 'owner', githubLogin: 'synthetic-owner' },
+    { hubUserId: 'danya', hubUsername: 'danya', githubLogin: 'synthetic-colleague' }];
+  const cfg = { BOARD_AUTHORS_JSON: JSON.stringify(authors) };
+  const post = (cookie, payload = message(), config = cfg) => f.request('POST', payload, cookie, {}, undefined, config);
+  const payload = message();
+  const saved = await post(owner, payload); assert.equal(saved.status, 201);
+  assert.deepEqual((await saved.json()).item.author, authors[0]);
+  const second = await post(danya); assert.equal(second.status, 201);
+  assert.deepEqual((await second.json()).item.author, authors[1]);
+  assert.equal((await post(stranger)).status, 403);
+  assert.equal((await post(danya, message(), {})).status, 403);
+  assert.equal((await post(owner, message(), { BOARD_AUTHORS_JSON: JSON.stringify([{ ...authors[0], hubUserId: 'different-id' }]) })).status, 403);
+  assert.equal((await post(owner, message(), { BOARD_AUTHORS_JSON: 'invalid' })).status, 403);
+  assert.equal((await post(owner, message({ author: authors[1] }))).status, 400);
+  // Changing administrator mapping later cannot rewrite attribution on an existing submission.
+  const changed = { BOARD_AUTHORS_JSON: JSON.stringify([{ ...authors[0], githubLogin: 'new-synthetic-login' }, authors[1]]) };
+  const duplicate = await post(owner, payload, changed); assert.equal(duplicate.status, 200);
+  assert.deepEqual((await duplicate.json()).item.author, authors[0]);
+  const ownerPage = await (await f.request('GET', undefined, owner, {}, undefined, cfg)).json();
+  assert.equal(ownerPage.items.length, 1); assert.equal(ownerPage.items[0].agentAck, null); assert.equal(ownerPage.items[0].agentResult, null);
+});
+
+const intentFor = (item, kind = 'issue') => {
+  const payloadHash = 'a'.repeat(64), marker = `<!-- hub-outbox:${item.id}:${payloadHash} -->`;
+  return { schemaVersion: 1, kind, issueNumber: kind === 'issue' ? null : 7, marker, payloadHash,
+    title: `Hub message ${item.id.slice(0, 8)}`, body: `${marker}\nSynthetic issue body` };
+};
+const issueReceipt = (kind = 'issue') => ({ kind, url: 'https://github.com/Maverlix777/agent-handoffs/issues/7'
+  + (kind === 'comment' ? '#issuecomment-19' : ''), issueNumber: 7, commentId: kind === 'comment' ? 19 : null, deliveredAt: 3000 });
+
+test('atomic delivery claim admits one attempt; expiry before intent permits takeover only', async (t) => {
+  const f = fixture(); t.after(() => f.sqlite.close()); await f.session('owner');
+  const { item } = await enqueue(f.env.HUB_DB, 'owner', validatePayload(message()), 1000);
+  const claims = await Promise.all(Array.from({ length: 8 }, () => claimDelivery(f.env.HUB_DB, item.id, 1000, 1000)));
+  const active = claims.filter(Boolean); assert.equal(active.length, 1); assert.equal(active[0].mode, 'deliver');
+  assert.equal(await claimDelivery(f.env.HUB_DB, item.id, 1999, 1000), null);
+  const newer = await claimDelivery(f.env.HUB_DB, item.id, 2000, 1000); assert.equal(newer.mode, 'deliver');
+  assert.deepEqual(await beginDeliveryAttempt(f.env.HUB_DB, item.id, active[0].attempt, intentFor(item), 2001), { applied: false });
+  assert.deepEqual(await beginDeliveryAttempt(f.env.HUB_DB, item.id, newer.attempt, intentFor(item), 2001), { applied: true });
+});
+
+test('durable intent forces reconciliation after timeout or crash, never a second create', async (t) => {
+  const f = fixture(); t.after(() => f.sqlite.close()); await f.session('owner');
+  const { item } = await enqueue(f.env.HUB_DB, 'owner', validatePayload(message()), 1000);
+  const first = await claimDelivery(f.env.HUB_DB, item.id, 1000, 1000);
+  const intent = intentFor(item);
+  await beginDeliveryAttempt(f.env.HUB_DB, item.id, first.attempt, intent, 1001);
+  const takeover = await claimDelivery(f.env.HUB_DB, item.id, 2000, 1000);
+  assert.equal(takeover.mode, 'reconcile'); assert.deepEqual(takeover.intent, intent);
+  assert.deepEqual(await beginDeliveryAttempt(f.env.HUB_DB, item.id, takeover.attempt, intent, 2001), { applied: false });
+  assert.deepEqual(await markDeliveryUncertain(f.env.HUB_DB, item.id, first.attempt, 2002), { applied: false });
+  assert.deepEqual(await markDeliveryUncertain(f.env.HUB_DB, item.id, takeover.attempt, 2002), { applied: true });
+  assert.equal(await claimDelivery(f.env.HUB_DB, item.id, 3000), null);
+  const reconcile = await claimDelivery(f.env.HUB_DB, item.id, 62002);
+  assert.equal(reconcile.mode, 'reconcile'); assert.deepEqual(reconcile.item.deliveryIntent, intent);
+  assert.deepEqual(await finishDelivery(f.env.HUB_DB, item.id, reconcile.attempt,
+    { status: 'synced', receipt: issueReceipt(), error: null }, 62003), { applied: true });
+  assert.equal(await claimDelivery(f.env.HUB_DB, item.id, 999999), null);
+  const stored = (await listSubmissions(f.env.HUB_DB, 'owner')).items[0];
+  assert.equal(stored.status, 'synced'); assert.equal(stored.agentAck, null); assert.equal(stored.agentResult, null);
+  assert.equal(stored.receipt.kind, 'issue');
+});
+
+test('Issues receipt requires durable intent and exact issue/comment identity; preflight failure is safely retryable', async (t) => {
+  const f = fixture(); t.after(() => f.sqlite.close()); await f.session('owner');
+  const { item } = await enqueue(f.env.HUB_DB, 'owner', validatePayload(message({ kind: 'answer',
+    target: { sourcePath: 'proposals/example/BOARD.md', taskId: 'EX-1', revision: 'a'.repeat(40) } })), 1000);
+  const first = await claimDelivery(f.env.HUB_DB, item.id, 1000);
+  assert.deepEqual(await finishDelivery(f.env.HUB_DB, item.id, first.attempt,
+    { status: 'synced', receipt: issueReceipt(), error: null }, 1001), { applied: false });
+  await finishDelivery(f.env.HUB_DB, item.id, first.attempt, { status: 'error', receipt: null, error: 'delivery_unavailable' }, 1001);
+  const retry = await claimDelivery(f.env.HUB_DB, item.id, 1002); assert.equal(retry.mode, 'deliver');
+  await beginDeliveryAttempt(f.env.HUB_DB, item.id, retry.attempt, intentFor(item, 'comment'), 1003);
+  assert.deepEqual(await finishDelivery(f.env.HUB_DB, item.id, retry.attempt,
+    { status: 'synced', receipt: issueReceipt(), error: null }, 1004), { applied: false });
+  await assert.rejects(finishDelivery(f.env.HUB_DB, item.id, retry.attempt,
+    { status: 'synced', receipt: { ...issueReceipt('comment'), url: 'https://attacker.invalid/issues/7' }, error: null }, 1004));
+  assert.deepEqual(await finishDelivery(f.env.HUB_DB, item.id, retry.attempt,
+    { status: 'synced', receipt: issueReceipt('comment'), error: null }, 1004), { applied: true });
 });
