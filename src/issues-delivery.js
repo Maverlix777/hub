@@ -55,17 +55,51 @@ function verifiedReceipt(value, intent, now) {
   return { kind: 'comment', url: value.html_url, issueNumber: intent.issueNumber, commentId: value.id, deliveredAt: now };
 }
 
-function client(env, fetchImpl) {
+function client(env, fetchImpl, clock, deadline) {
   return async (path, body) => {
     requireThat(path === '' || path.startsWith('/'));
-    const response = await fetchImpl(`${API}${path}`, { method: body ? 'POST' : 'GET', redirect: 'error',
-      signal: AbortSignal.timeout(10000), headers: { authorization: `Bearer ${env.HUB_ISSUES_GITHUB_TOKEN}`,
-        accept: 'application/vnd.github+json', 'x-github-api-version': '2022-11-28', 'user-agent': 'hub-issues-outbox',
-        ...(body ? { 'content-type': 'application/json' } : {}) }, ...(body ? { body: JSON.stringify(body) } : {}) });
-    requireThat(response.ok);
-    const raw = await response.text();
-    requireThat(raw.length <= 1024 * 1024);
-    return JSON.parse(raw);
+    const remaining = deadline - clock();
+    requireThat(remaining > 0);
+    const controller = new AbortController();
+    let timer;
+    let reader;
+    const timeout = new Promise((_, reject) => {
+      timer = setTimeout(() => { controller.abort(); reject(new Error('delivery_unavailable')); }, Math.min(10000, remaining));
+    });
+    // The timer covers fetch AND every streamed body read. All requests share the same deadline.
+    const bounded = async promise => {
+      const result = await Promise.race([promise, timeout]);
+      requireThat(clock() < deadline);
+      return result;
+    };
+    try {
+      const response = await bounded(fetchImpl(`${API}${path}`, { method: body ? 'POST' : 'GET', redirect: 'error',
+        signal: controller.signal, headers: { authorization: `Bearer ${env.HUB_ISSUES_GITHUB_TOKEN}`,
+          accept: 'application/vnd.github+json', 'x-github-api-version': '2022-11-28', 'user-agent': 'hub-issues-outbox',
+          ...(body ? { 'content-type': 'application/json' } : {}) }, ...(body ? { body: JSON.stringify(body) } : {}) }));
+      requireThat(response.ok && response.body && typeof response.body.getReader === 'function');
+      reader = response.body.getReader();
+      const decoder = new TextDecoder('utf-8', { fatal: true });
+      let raw = '';
+      let bytes = 0;
+      while (true) {
+        const chunk = await bounded(reader.read());
+        if (chunk.done) break;
+        bytes += chunk.value.byteLength;
+        requireThat(bytes <= 1024 * 1024);
+        raw += decoder.decode(chunk.value, { stream: true });
+      }
+      raw += decoder.decode();
+      return JSON.parse(raw);
+    } finally {
+      clearTimeout(timer);
+      controller.abort();
+      if (reader) {
+        // Do not let an uncooperative stream's cancellation extend the total budget.
+        reader.cancel().catch(() => {});
+        reader.releaseLock();
+      }
+    }
   };
 }
 
@@ -93,6 +127,9 @@ async function reconcile(api, intent) {
 export async function flushIssueDelivery(db, env, itemId, options = {}) {
   if (env.HUB_ISSUES_ENABLED !== 'true' || typeof env.HUB_ISSUES_GITHUB_TOKEN !== 'string'
     || env.HUB_ISSUES_GITHUB_TOKEN.length < 20) return { status: 'not_configured' };
+  const clock = options.clock || (() => performance.now());
+  const budgetMs = options.budgetMs === undefined ? 25000 : Math.min(25000, Math.max(1, options.budgetMs));
+  const deadline = clock() + budgetMs;
   const store = options.store || await import('./outbox.js');
   const now = options.now || Date.now;
   const claim = await store.claimDelivery(db, itemId, now());
@@ -100,7 +137,7 @@ export async function flushIssueDelivery(db, env, itemId, options = {}) {
   const { item, attempt } = claim;
   let attempted = Boolean(item.deliveryIntent);
   try {
-    const api = client(env, options.fetchImpl || fetch);
+    const api = client(env, options.fetchImpl || fetch, clock, deadline);
     const metadata = await api('');
     requireThat(metadata.full_name === REPO && metadata.private === true && metadata.visibility === 'private' && metadata.has_issues === true);
     const expected = await makeIssueIntent(item, env);

@@ -43,7 +43,7 @@ function harness(item = message, overrides = {}) {
     if (url === `${API}/issues/43` || url === `${API}/issues/comments/101`) return json(state.remote);
     throw new Error('unexpected_test_route');
   };
-  return { state, store, fetchImpl, run: (config = env) => flushIssueDelivery(null, config, item.id, { store, fetchImpl, now: () => 1000 }) };
+  return { state, store, fetchImpl, run: (config = env, options = {}) => flushIssueDelivery(null, config, item.id, { store, fetchImpl, now: () => 1000, ...options }) };
 }
 
 test('message creates one GitHub issue only after intent, independent readback yields typed receipt', async () => {
@@ -202,4 +202,43 @@ test('actual SQLite uncertain intent survives lease expiry and only reconciles r
   assert.equal((await run(62000)).status, 'synced');
   assert.equal(h.state.posts, 1);
   assert.equal((await nativeStore.listSubmissions(f.db, 'local-user')).items[0].receipt.commentId, 101);
+});
+
+test('shared wall-clock budget stops before POST after slow preflight requests', async () => {
+  let elapsed = 0;
+  const h = harness(message, { handler() { elapsed += 13000; } });
+  assert.equal((await h.run(env, { clock: () => elapsed })).error, 'delivery_unavailable');
+  assert.equal(h.state.posts, 0); assert.equal(h.state.intent, null);
+  assert.equal(h.state.calls.length, 2);
+});
+
+test('total deadline after attempted POST preserves uncertain intent and makes no readback or resend', async () => {
+  let elapsed = 0;
+  const h = harness(message, { handler() { elapsed += 9000; } });
+  assert.equal((await h.run(env, { clock: () => elapsed })).error, 'delivery_uncertain');
+  assert.equal(h.state.posts, 1); assert.ok(h.state.intent); assert.equal(h.state.calls.length, 3);
+  assert.equal(h.state.uncertain, true);
+});
+
+test('oversized streamed response is cancelled while reading, before any POST', async () => {
+  let cancelled = false;
+  const h = harness(message, { handler(url) {
+    if (url === API) return new Response(new ReadableStream({
+      pull(controller) { controller.enqueue(new Uint8Array(600000)); },
+      cancel() { cancelled = true; },
+    }));
+  } });
+  assert.equal((await h.run()).error, 'delivery_unavailable'); assert.equal(h.state.posts, 0);
+  assert.equal(cancelled, true); assert.equal(h.state.intent, null);
+});
+
+test('stalled response stream is bounded by total budget even when fetch already resolved', async () => {
+  let cancelled = false;
+  const h = harness(message, { handler(url) {
+    if (url === API) return new Response(new ReadableStream({ cancel() { cancelled = true; } }));
+  } });
+  const started = performance.now();
+  assert.equal((await h.run(env, { budgetMs: 30 })).error, 'delivery_unavailable');
+  assert.ok(performance.now() - started < 2000);
+  assert.equal(cancelled, true); assert.equal(h.state.posts, 0);
 });
