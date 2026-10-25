@@ -68,6 +68,8 @@
       const name = source.path || source.name || 'Источник';
       row.append(safeLink(source.url, name) || el('span', '', name));
       row.append(document.createTextNode(` — ${labels[source.status] || 'состояние неизвестно'}${Number.isFinite(source.cardCount) ? `, карточек: ${source.cardCount}` : ''}`));
+      const sourceErrors = ['http_401','http_403','http_404','http_429','http_5xx','http_other','timeout','network_error','invalid_json','invalid_blob','oversized','redirect_rejected','empty_response'];
+      if (source.status === 'error' && sourceErrors.includes(source.error)) row.append(document.createTextNode(' (' + source.error + ')'));
       if (source.unmappedCount) row.append(document.createTextNode(`; не распознано строк: ${source.unmappedCount}`));
       details.append(row);
     }

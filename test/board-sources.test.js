@@ -23,7 +23,7 @@ test('review is separate, source-safe links only; blockers and unresolved rows a
 });
 test('empty, unsupported and remote error stay distinct with partial successful data', async () => {
   const result=await loadBoardSources(env, async url => url.endsWith('ideas.md') ? new Response('not found',{status:404}) : new Response(table));
-  assert.equal(result.board.cards.length,1); assert.equal(result.board.sources[1].status,'error'); assert.equal(result.board.sources[1].error,'source_missing'); assert.equal(result.board.cards[0].sourceRevision,blob(table));
+  assert.equal(result.board.cards.length,1); assert.equal(result.board.sources[1].status,'error'); assert.equal(result.board.sources[1].error,'http_404'); assert.equal(result.board.cards[0].sourceRevision,blob(table));
   const empty=await loadBoardSources(env, async()=>new Response(''));
   assert.ok(empty.board.sources.every(s=>s.status==='empty'));
   const unsupported=await loadBoardSources(env, async()=>new Response('# Unknown format'));

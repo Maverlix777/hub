@@ -1,5 +1,11 @@
 // Read-only projection of local-manager-telemetry v1. Producer claims are not Hub verification.
 const MAX_BYTES = 256 * 1024;
+// Closed diagnostics only: never expose upstream text, response bodies or credentials.
+function httpFailure(status) {
+  if ([401, 403, 404, 429].includes(status)) return 'http_' + status;
+  return status >= 500 && status <= 599 ? 'http_5xx' : 'http_other';
+}
+
 const MAX_AGE = 15 * 60 * 1000;
 const states = new Set(['dispatched', 'ack', 'running', 'result_reported', 'error', 'unknown']);
 // IDs are bounded opaque labels, never paths. Keep model tags (gemma4:12b),
@@ -75,14 +81,17 @@ export async function readTelemetry(env, fetchImpl = fetch, now = Date.now()) {
     || !env.BOARD_GITHUB_TOKEN) return unknown('invalid_source');
   const controller = new AbortController();
   const timer = setTimeout(() => controller.abort(), 5000);
-  let reader;
+  let reader; let response;
   try {
-    const response = await fetchImpl(`https://api.github.com/repos/${repo}/contents/${path.split('/').map(encodeURIComponent).join('/')}`, {
+    response = await fetchImpl(`https://api.github.com/repos/${repo}/contents/${path.split('/').map(encodeURIComponent).join('/')}`, {
       method: 'GET', redirect: 'error', signal: controller.signal,
       headers: { accept: 'application/vnd.github.raw+json', authorization: `Bearer ${env.BOARD_GITHUB_TOKEN}`,
         'user-agent': 'hub-board', 'x-github-api-version': '2022-11-28' },
     });
-    if (!response.ok || response.redirected || Number(response.headers.get('content-length')) > MAX_BYTES || !response.body) return unknown('unavailable');
+    if (response.redirected) return unknown('redirect_rejected');
+    if (!response.ok) return unknown(httpFailure(response.status));
+    if (Number(response.headers.get('content-length')) > MAX_BYTES) return unknown('oversized');
+    if (!response.body) return unknown('empty_response');
     reader = response.body.getReader();
     const decoder = new TextDecoder('utf-8', { fatal: true });
     let bytes = 0; let text = '';
@@ -91,10 +100,16 @@ export async function readTelemetry(env, fetchImpl = fetch, now = Date.now()) {
       if (done) break;
       bytes += value.byteLength;
       if (bytes > MAX_BYTES) return unknown('oversized');
-      text += decoder.decode(value, { stream: true });
+      try { text += decoder.decode(value, { stream: true }); } catch { return unknown('invalid_json'); }
     }
-    text += decoder.decode();
-    return projectTelemetry(JSON.parse(text), now);
-  } catch { return unknown('unavailable'); }
-  finally { clearTimeout(timer); if (reader) await reader.cancel().catch(() => {}); }
+    let data;
+    try { text += decoder.decode(); data = JSON.parse(text); } catch { return unknown('invalid_json'); }
+    return projectTelemetry(data, now);
+  } catch (error) {
+    return unknown(controller.signal.aborted || ['TimeoutError', 'AbortError'].includes(error?.name) ? 'timeout' : 'network_error');
+  } finally {
+    clearTimeout(timer);
+    if (reader) await reader.cancel().catch(() => {});
+    else if (response?.body) await response.body.cancel().catch(() => {});
+  }
 }
