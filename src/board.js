@@ -31,7 +31,7 @@ export function columnForState(state, text = '') {
 export function parseStatusSince(text) {
   const m = /(\d{4})-(\d{2})-(\d{2})(?:[T ](\d{2}):(\d{2}))?/.exec(String(text || ''));
   if (!m) return '';
-  const [y, mo, d, h = 0, mi = 0] = m.slice(1).map(Number);
+  const [y, mo, d, h = 0, mi = 0] = m.slice(1).map((v) => Number(v ?? 0));
   const t = new Date(Date.UTC(y, mo - 1, d, h, mi));
   if (t.getUTCFullYear() !== y || t.getUTCMonth() !== mo - 1 || t.getUTCDate() !== d || h > 23 || mi > 59) return '';
   return t.toISOString();
