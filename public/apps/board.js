@@ -8,6 +8,7 @@
   let focusBefore = null; let lastRead = null; let outboxAvailable = false; let nextCursor = null;
   let authGeneration = 0; let authInvalid = false;
   const receiptChecks = new Map();
+  const deliveryRetries = new Set();
   const cardKey = (card) => card.key || `${card.sourcePath || card.source}::${card.id}`;
   function el(tag, className, text) {
     const node = document.createElement(tag);
@@ -138,7 +139,7 @@
   function invalidateSession() {
     if (authInvalid) return;
     authInvalid = true; authGeneration += 1;
-    cards = []; sources = []; items = []; drafts.clear(); receiptChecks.clear(); nextCursor = null; lastRead = null; outboxAvailable = false;
+    cards = []; sources = []; items = []; drafts.clear(); receiptChecks.clear(); deliveryRetries.clear(); nextCursor = null; lastRead = null; outboxAvailable = false;
     closeCard(false); render(); renderOutbox();
     $('detail-content').replaceChildren(); $('detail-id').textContent = '';
     $('telemetry').replaceChildren(el('h2','','Снежанна'),el('p','hint','Доступ завершён. Данные скрыты.'));
@@ -271,7 +272,33 @@
         ? 'Проверяем квитанцию доставки… Сообщение уже сохранено.'
         : 'Быстрая доставка пока не подтверждена. Сообщение сохранено; статусы проверятся при обновлении доски.'));
       if (item.error) li.append(el('p','error',`Причина: ${item.error}`));
-      if (['error','conflict'].includes(item.status)) li.append(el('p','hint','Запись уже сохранена. Повторная доставка и разбор конфликта — при проверке Снежанной; новое сообщение не создаётся.'));
+      if (item.status === 'conflict') li.append(el('p','hint','Запись сохранена. Конфликт требует разбора источника; автоматический повтор не выполняется.'));
+      if (item.status === 'error') {
+        li.append(el('p','hint','Запись сохранена. Повтор проверит существующую доставку с тем же идентификатором. Если канал отключён, запись останется без подтверждения.'));
+        const retry = el('button','retry-delivery','Повторить доставку'); retry.type = 'button';
+        retry.disabled = authInvalid || deliveryRetries.has(item.id) || receiptChecks.get(item.id) === 'checking' || !item.idempotencyKey;
+        const retryStatus = el('p','form-status'); retryStatus.setAttribute('role','status');
+        retry.addEventListener('click',async () => {
+          if (authInvalid || deliveryRetries.has(item.id)) return;
+          deliveryRetries.add(item.id); retry.disabled = true; retryStatus.textContent = 'Проверяем сохранённое сообщение…';
+          try {
+            const payload = {idempotencyKey:item.idempotencyKey,kind:item.kind,text:item.text,...(item.target ? {target:item.target} : {})};
+            const result = await api('outbox',{method:'POST',headers:{'Content-Type':'application/json','X-Hub-Request':'1'},body:JSON.stringify(payload)});
+            requireActiveSession();
+            if (result.item?.id !== item.id) throw new Error('invalid_receipt');
+            items = items.map(existing => existing.id === item.id ? result.item : existing);
+            receiptChecks.delete(item.id); renderOutbox();
+            if (result.item.status !== 'synced' && result.item.status !== 'conflict') checkReceipt(item.id);
+          } catch (error) {
+            if (!authInvalid) { retryStatus.className = 'form-status error'; retryStatus.textContent = 'Повтор не подтверждён. Существующее сообщение сохранено; новый идентификатор не создавался.'; }
+          } finally {
+            deliveryRetries.delete(item.id); retry.disabled = authInvalid;
+            const current = [...$('outbox-list').querySelectorAll('[data-receipt-id]')].find(node => node.dataset.receiptId === item.id);
+            const button = current?.querySelector('.retry-delivery'); if (button) button.disabled = authInvalid || receiptChecks.get(item.id) === 'checking' || !item.idempotencyKey;
+          }
+        });
+        li.append(retry,retryStatus);
+      }
       list.append(li);
     }
     if (!items.length) list.append(el('li','empty',outboxAvailable ? 'Сохранённых сообщений пока нет' : 'Очередь не прочитана'));

@@ -143,5 +143,23 @@ const http = require('node:http');
     assert.equal((await polling.locator('.delivery-stages dd').allTextContents())[1],'Доставка подтверждена');
     await polling.close();
     console.log('PASS: saved immediately, bounded foreground GET observes verified issue receipt without a second POST or 60-second wait; synthetic API only.');
+    const retryPage=await browser.newPage(); let retries=0;
+    const failedItem={id:'persisted-error',idempotencyKey:'11111111-1111-4111-8111-111111111111',kind:'answer',text:'Persisted synthetic answer',target:{sourcePath:'fixtures/BOARD.md',taskId:'DEMO-1',revision:'a'.repeat(40)},status:'error',error:'delivery_uncertain'};
+    await retryPage.route('**/hub/api/**',route => {
+      if(route.request().url().endsWith('/board')) return route.fulfill({json:{cards:[],sources:[]}});
+      if(route.request().method()==='POST') {
+        retries++; assert.deepEqual(route.request().postDataJSON(),{idempotencyKey:failedItem.idempotencyKey,kind:failedItem.kind,text:failedItem.text,target:failedItem.target});
+        return route.fulfill({json:{duplicate:true,item:{...failedItem,status:'synced',error:null,receipt:{kind:'comment',url:'https://github.com/Maverlix777/agent-handoffs/issues/123#issuecomment-456',issueNumber:123,commentId:456,deliveredAt:Date.now()}}}});
+      }
+      return route.fulfill({json:{items:[failedItem,{...failedItem,id:'conflict-item',status:'conflict'}],delivery:{status:'not_configured'}}});
+    });
+    await retryPage.goto(`http://127.0.0.1:${server.address().port}/hub/apps/board.html`);
+    await retryPage.locator('[data-receipt-id="persisted-error"] .retry-delivery').click();
+    await retryPage.locator('[data-receipt-id="persisted-error"] a').waitFor();
+    assert.equal(retries,1); assert.equal(await retryPage.locator('[data-receipt-id="persisted-error"]').count(),1);
+    assert.equal(await retryPage.locator('.retry-delivery').count(),0);
+    assert.equal((await retryPage.locator('[data-receipt-id="persisted-error"] .delivery-stages dd').allTextContents())[1],'Доставка подтверждена');
+    await retryPage.close();
+    console.log('PASS: persisted-error retry button preserves payload/key/id, creates no new UI item, and never offers retry for conflict/synced; synthetic API only.');
   } finally { if (browser) await browser.close(); await new Promise(resolve=>server.close(resolve)); }
 })().catch(error=>{console.error(error);process.exitCode=1;});
