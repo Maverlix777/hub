@@ -11,6 +11,7 @@
   const status = document.getElementById('status');
   const root = document.getElementById('columns');
   const search = document.getElementById('q');
+  const telemetryRoot = document.getElementById('telemetry');
   let cards = [];
 
   function el(tag, className, text) {
@@ -48,6 +49,32 @@
     }
   }
 
+  function renderTelemetry(data) {
+    if (!telemetryRoot) return;
+    telemetryRoot.replaceChildren(el('h2', '', 'Снежанна · локальная активность'));
+    telemetryRoot.append(el('p', 'hint', 'Отчёт локального источника — не подтверждение выполнения задачи. Ручная доска выше не изменяется.'));
+    if (data?.status !== 'available') {
+      telemetryRoot.append(el('p', 'hint', 'unknown · актуальные измерения недоступны'));
+      return;
+    }
+    telemetryRoot.append(el('p', 'hint', `Снимок: ${data.as_of || 'unknown'}`));
+    const list = el('ul', 'activity');
+    for (const event of data.events || []) {
+      list.append(el('li', 'card', `${event.task_id || 'unknown'} · ${event.state || 'unknown'} · ${event.observed_at || 'unknown'}${event.producer_claimed_verified ? ' · проверка заявлена источником' : ''}`));
+    }
+    if (!(data.events || []).length) list.append(el('li', 'empty', 'Нет событий в снимке'));
+    telemetryRoot.append(list);
+    const measured = (value) => typeof value === 'number' && Number.isFinite(value) ? String(Math.round(value * 100) / 100) : 'unknown';
+    for (const run of data.runs || []) {
+      telemetryRoot.append(el('p', 'hint', `${run.model || 'unknown'} · ${run.created_at || 'unknown'} · tokens ${measured(run.eval_count)} · eval ${measured(run.eval_seconds)} s · load ${measured(run.load_seconds)} s · prompt ${measured(run.prompt_eval_seconds)} s · ${measured(run.tokens_per_second)} tokens/s · ${run.finish_reason || 'unknown'}`));
+    }
+    if (!(data.runs || []).length) telemetryRoot.append(el('p', 'hint', 'Gemma: unknown'));
+    if (data.gpu?.status !== 'measured') telemetryRoot.append(el('p', 'hint', 'GPU: unknown'));
+    for (const sample of data.gpu?.samples || []) {
+      telemetryRoot.append(el('p', 'hint', `GPU ${sample.device_id || 'unknown'} · ${sample.measured_at || 'unknown'} · ${measured(sample.utilization_percent)}% · VRAM ${measured(sample.memory_used_bytes)} / ${measured(sample.memory_total_bytes)} bytes`));
+    }
+  }
+
   async function load() {
     status.textContent = 'Загружаю…';
     try {
@@ -60,6 +87,7 @@
       const unmapped = Number(board.unmappedCount) || 0;
       status.textContent = `Карточек: ${cards.length}${unmapped ? `, не распознано строк: ${unmapped}` : ''}.`;
       render();
+      renderTelemetry(board.telemetry);
     } catch {
       status.textContent = 'Нет связи с сервером.';
     }

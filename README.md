@@ -4,6 +4,8 @@
 
 Cloudflare Worker authentication and deployment gates are documented in [CLOUDFLARE.md](CLOUDFLARE.md). The checked-in D1 ID is a placeholder, and production deployment still requires account-owner configuration and verification.
 
+The existing owner-only board can optionally read a private local-agent telemetry artifact. The [telemetry contract](docs/telemetry.md) describes the disabled-by-default reader, privacy boundaries and synthetic tests. No uploader or live data source is configured by this repository.
+
 ## Локальная разработка
 
 Аккаунт Cloudflare и `wrangler login` не нужны: Worker, локальная D1 и ассеты из `public/` работают в workerd через `wrangler dev --local`.

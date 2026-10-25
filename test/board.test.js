@@ -131,3 +131,36 @@ test('board owner var accepts a comma-separated list', async () => {
   const g = await worker.fetch(new Request(`${origin}/hub/api/board`, { headers: { cookie: guest.cookie } }), multi);
   assert.equal(g.status, 403);
 });
+
+test('telemetry authorization precedes all reads and optional failure preserves manual board', async () => {
+  const configured = { ...env, BOARD_TELEMETRY_PATH: 'telemetry/current.json' };
+  let calls = 0;
+  globalThis.fetch = async (url) => {
+    calls++;
+    return String(url).endsWith('.json') ? new Response('invalid') : new Response(SAMPLE);
+  };
+  const request = (who) => new Request(`${origin}/hub/api/board`, { headers: who ? { cookie: who.cookie } : {} });
+  assert.equal((await worker.fetch(request(), configured)).status, 401);
+  assert.equal((await worker.fetch(request(guest), configured)).status, 403);
+  assert.equal((await worker.fetch(request(owner), { ...configured, BOARD_OWNER_USERNAME: '' })).status, 403);
+  assert.equal(calls, 0);
+  const response = await worker.fetch(request(owner), configured);
+  assert.equal(response.status, 200);
+  assert.equal(response.headers.get('cache-control'), 'no-store');
+  const result = await response.json();
+  assert.deepEqual(result.counts, { ideas: 2, planned: 2, progress: 6, done: 4, questions: 4 });
+  assert.equal(result.cards[0].who, 'x');
+  assert.equal(result.telemetry.status, 'unknown');
+  assert.equal(calls, 3);
+  // The artifact exists before the request; do not timestamp it later inside fetch.
+  const artifactTime = new Date(Date.now() - 1000).toISOString();
+  globalThis.fetch = async (url) => String(url).endsWith('.json') ? Response.json({ telemetry: {
+    schema_version: 1, producer: 'local-manager-telemetry', as_of: artifactTime,
+    events: [], gemma: { results: [] }, gpu: { samples: [] },
+  } }) : new Response(SAMPLE);
+  const available = await (await worker.fetch(request(owner), configured)).json();
+  assert.equal(available.telemetry.status, 'available');
+  assert.equal(available.telemetry.verification, 'producer_report_only');
+  assert.equal(available.cards[0].who, 'x');
+  assert.deepEqual(available.counts, result.counts);
+});
