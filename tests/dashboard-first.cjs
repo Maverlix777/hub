@@ -51,6 +51,23 @@ const session={username:'synthetic-owner',entitlement:'paid',apps:['board','chat
    for(const y of new Set(boxes.map(b=>b.y))){const heights=boxes.filter(b=>b.y===y).map(b=>b.height);assert.ok(Math.max(...heights)-Math.min(...heights)<=1,`unequal catalog card heights at ${width}`);}
    await page.screenshot({path:path.join(artifactDir,`dashboard-first-catalog-${width}.png`),fullPage:true});
   }
+  // Wider text metrics reproduce Linux font variation and user text scaling.
+  // Every header link must wrap inside the viewport and remain actionable.
+  await page.setViewportSize({width:320,height:900});
+  for(const route of ['/hub/','/hub/index.html','/hub/apps/chat.html','/hub/apps/downloads.html']){
+   await page.goto(base+route);await page.locator('#account-name').filter({hasText:session.username}).waitFor();
+   await page.addStyleTag({content:'.hub-nav a { font-size:18px !important; letter-spacing:.3px !important; }'});
+   assert.equal(await page.evaluate(()=>document.documentElement.scrollWidth<=innerWidth),true,`scaled navigation overflow on ${route}`);
+   const links=page.locator('.hub-nav a');assert.equal(await links.count(),4);
+   const rows=[];
+   for(const link of await links.all()){
+    assert.equal(await link.isVisible(),true);const box=await link.boundingBox();assert.ok(box.x>=0&&box.x+box.width<=320,`scaled link outside viewport on ${route}`);rows.push(Math.round(box.y));
+    await link.focus();assert.equal(await link.evaluate(node=>node===document.activeElement),true);await link.click({trial:true});
+   }
+   assert.ok(new Set(rows).size>1,`scaled navigation did not wrap on ${route}`);
+   if(route==='/hub/')await page.screenshot({path:path.join(artifactDir,'dashboard-first-scaled-nav-320.png'),fullPage:false});
+  }
+  await page.setViewportSize({width:1280,height:900});
   await page.goto(base+'/hub/');await page.locator('#columns button.card').first().waitFor();
   const opener=page.locator('button.card[data-card-key="fixture::QA-1"]');await opener.focus();await page.keyboard.press('Enter');
   await page.locator('#task-dialog[open]').waitFor();assert.equal(await page.locator('#detail-content img').count(),0);
