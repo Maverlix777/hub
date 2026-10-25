@@ -10,3 +10,6 @@
 .card .meta { font-size: 12px; color: var(--muted); overflow-wrap: anywhere; }
 .col.questions { border-color: var(--accent); }
 .empty { color: var(--muted); font-size: 14px; }
+.telemetry { border-top: 1px solid var(--line); padding-top: 12px; overflow-wrap: anywhere; }
+.telemetry h2 { font-size: 18px; }
+.activity { list-style: none; padding: 0; display: grid; gap: 8px; max-height: 40vh; overflow-y: auto; }

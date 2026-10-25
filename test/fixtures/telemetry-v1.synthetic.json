@@ -1,0 +1,105 @@
+{
+  "telemetry": {
+    "schema_version": 1,
+    "producer": "local-manager-telemetry",
+    "as_of": "2026-10-25T06:00:00Z",
+    "events": [
+      {
+        "id": "event-contract",
+        "facts": {
+          "event_id": "event-contract",
+          "repo": null,
+          "task_id": "TEST-2",
+          "request_id": null,
+          "attempt_id": null,
+          "work_id": null,
+          "turn_id": null,
+          "at_utc": "2026-10-25T06:00:00Z",
+          "source_sha": null,
+          "stage": "running"
+        },
+        "stage": "running",
+        "proof": null
+      }
+    ],
+    "cards": [
+      {
+        "id": "0210a23c0420b0467078d995a51dfceac2636742f96bc27c9dbd96ad76d39c2f",
+        "title": "TEST-2",
+        "who": null,
+        "state": "running",
+        "last_known_state": "running",
+        "observed_at": "2026-10-25T06:00:00Z",
+        "ref": "event-contract",
+        "source": "local-manager-telemetry",
+        "column": "progress",
+        "repo": null,
+        "task_id": "TEST-2",
+        "request_id": null,
+        "attempt_id": null,
+        "turn_id": null,
+        "work_id": null
+      }
+    ],
+    "counts": {
+      "ideas": 0,
+      "planned": 0,
+      "progress": 1,
+      "done": 0,
+      "questions": 0
+    },
+    "unmappedCount": 0,
+    "ignored_records": 0,
+    "gemma": {
+      "results": [
+        {
+          "source_sha256": "31fee9a49b8aa1be5f1e81f7bb46a984e4a35cca5106f719154ca5db1505cc23",
+          "model": "example:12b",
+          "run_id": null,
+          "created_at": "2026-10-25T06:00:00Z",
+          "done": true,
+          "finish_reason": "stop",
+          "eval_count": 20,
+          "prompt_eval_count": 30,
+          "total_seconds": 3.0,
+          "load_seconds": 0.5,
+          "prompt_eval_seconds": 0.5,
+          "eval_seconds": 2.0,
+          "tokens_per_second": 10.0,
+          "source_sha256s": [
+            "31fee9a49b8aa1be5f1e81f7bb46a984e4a35cca5106f719154ca5db1505cc23"
+          ]
+        }
+      ],
+      "totals": {
+        "result_count": 1,
+        "eval_count": 20,
+        "eval_count_missing": 0,
+        "prompt_eval_count": 30,
+        "prompt_eval_count_missing": 0,
+        "total_seconds": 3.0,
+        "total_seconds_missing": 0,
+        "load_seconds": 0.5,
+        "load_seconds_missing": 0,
+        "eval_seconds": 2.0,
+        "eval_seconds_missing": 0,
+        "prompt_eval_seconds": 0.5,
+        "prompt_eval_seconds_missing": 0
+      }
+    },
+    "gpu": {
+      "status": "unknown",
+      "samples": []
+    },
+    "sources": [
+      {
+        "sha256": "31fee9a49b8aa1be5f1e81f7bb46a984e4a35cca5106f719154ca5db1505cc23",
+        "bytes": 264
+      },
+      {
+        "sha256": "7bc37a60db4ebbf421ff6d6912f5e0ae7c44b61d831ccaca2911386c937078a9",
+        "bytes": 107
+      }
+    ]
+  }
+}

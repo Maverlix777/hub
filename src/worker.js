@@ -1,5 +1,6 @@
 import { Buffer } from 'node:buffer';
 import { buildBoard } from './board.js';
+import { readTelemetry } from './telemetry.js';
 import {
   generateAuthenticationOptions,
   generateRegistrationOptions,
@@ -66,7 +67,7 @@ async function loadBoard(env, fetchImpl = fetch) {
     if (!response.ok) return { error: 'board_unavailable' };
     sources.push({ name: path.split('/').slice(-2, -1)[0] || path, text: await response.text() });
   }
-  return { board: buildBoard(sources) };
+  return { board: { ...buildBoard(sources), telemetry: await readTelemetry(env, fetchImpl) } };
 }
 
 function appAllowed(appId, tier) {
