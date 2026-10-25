@@ -686,7 +686,7 @@ export function createWorker(webauthn = {
       }
       if (!session) return Response.redirect(`${canonicalOrigin}/hub/login/`, 302);
       if (!['GET', 'HEAD'].includes(request.method)) return new Response('Method not allowed', { status: 405, headers: { ...noStore, allow: 'GET, HEAD' } });
-      if (pathname === '/hub/') pathname = '/hub/index.html';
+      if (pathname === '/hub/') pathname = isBoardOwner(session, env) ? '/hub/apps/board.html' : '/hub/index.html';
       const assetPath = staticAssetPath(pathname);
       const appId = appIdForAsset(assetPath);
       if (appId === 'board' ? !isBoardOwner(session, env) : (appId !== null && !appAllowed(appId, session.tier))) return new Response('Forbidden', { status: 403, headers: noStore });
