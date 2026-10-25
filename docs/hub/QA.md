@@ -55,6 +55,16 @@ The first acceptance-harness attempts exposed two harness mistakes: a closed dia
 
 The review read the actual outbox validation, owner/Origin/header checks, immutable idempotency insertion, source revision binding, result CAS, source loading and typed adapter implementation. The adapter prepares a bounded task-document write and verifies immutable readback; it does not execute owner text. The current telemetry projection does not contain executor identity/evidence for every event, and the UI honestly shows missing values.
 
+## Additional release-audit review
+
+The same independent reviewer inspected release-audit change `a8cc6b8399cc834890fb722616da2a13452b0d8d` in its source worktree and reran `node --test test/release-audit.test.js`: **7 tests, 7 passed, 0 failed**. `node tests/check-downloads.cjs` validated **36 catalog records**. The earlier 31-record check above predates this separately reviewed catalog update.
+
+Review found that optional binary hashing originally used independent 60-second timeouts rather than the audit's shared deadline. The author corrected redirects and streamed body processing to use the remaining shared budget, and added an expired-budget/no-network test. The test root now uses `fileURLToPath` so paths containing spaces resolve correctly. The fixed source was reviewed before acceptance.
+
+The protected Location Fusion path and its exact metadata checks remain unchanged. Doktor 1.0.3 now uses the exact release asset URL while preserving its size/digest guards. Added AAB entries state that they are store packages and cannot install directly; unsigned IPA entries remain labeled previews with device installation unverified. The CLI reads existing `gh` authentication internally, performs no remote writes and creates no timer. Publication tag resolution is explicitly separate from source-build provenance.
+
+This was a lightweight source/test review. The independent reviewer did **not** repeat the live binary downloads. The source author's download hashes and metadata evidence require separate root verification and do not establish signing, device installation, production approval or the scheduled audit's activation.
+
 ## Visual evidence
 
 All images contain synthetic fixtures only. Desktop and mobile screenshots were inspected visually; modal images use the viewport rather than a full-page capture of the background document.
