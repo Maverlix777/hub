@@ -119,8 +119,8 @@ async function main() {
         check(`[${w}] board renders synthetic API card`, (await p.textContent('#columns')).includes('Synthetic board task'));
         const telemetry = await p.textContent('#telemetry');
         check(`[${w}] board renders unavailable telemetry explicitly`, telemetry.includes('Свежесть неизвестна') && telemetry.includes('Нет доступных событий'));
-        await p.waitForFunction(() => document.getElementById('delivery-status').textContent.includes('Канал доставки ещё не подключён'));
-        check(`[${w}] board distinguishes persisted queue from unconfigured delivery`, (await p.textContent('#delivery-status')).includes('Канал доставки ещё не подключён'));
+        await p.waitForFunction(() => document.getElementById('delivery-status').textContent.includes('Канал GitHub Issues ещё не подключён'));
+        check(`[${w}] board distinguishes persisted queue from unconfigured delivery`, (await p.textContent('#delivery-status')).includes('Канал GitHub Issues ещё не подключён'));
       }
       await p.click('#hub');
       await p.waitForSelector('a.tile');

@@ -1,6 +1,57 @@
 # Independent Hub acceptance evidence
 
-Date: 2026-10-25. Reviewer: the dedicated QA subagent, separate from UI, ingestion, outbox and adapter authors. Product code tested through `3dfdfbf` (including the persisted outbox/route contract correction), with the harness committed as `281a2ea`. Root independently reran that browser harness at `281a2ea`: 14/14 checkpoints passed, and its refreshed synthetic screenshots are included in the following evidence commit. No production deployment or migration was performed by these QA runs.
+Date: 2026-10-25. Reviewer: the dedicated QA subagent, separate from UI, ingestion, outbox and adapter authors. Current canonical Issues implementation tested through `e49933a`: **22/22 independent browser acceptance checkpoints passed**. No production deployment, migration or real GitHub Issues write was performed by this QA run. Historical 14-check baseline evidence is retained below and does not supersede the current Issues contract.
+
+## Current canonical Issues acceptance
+
+The expanded harness uses actual `worker.fetch(request, env, ctx)`, real SQLite with migrations 0001/0002/0003, and actual server-side Issues delivery code scheduled through `ctx.waitUntil`. Only the GitHub wire responses are synthetic. Both authors are explicitly mapped by stable synthetic Hub user ID, username and GitHub login. A third account remains denied even when the legacy owner list contains its username. No real owner mapping is inferred or deployed.
+
+The synthetic GitHub fixture verifies new issue POSTs contain only the existing `idea` label, with no worker assignment or ready/execution label. Answers create comments on the configured existing task issue and leave its worker/cloud-state labels untouched. Delivery requires a separate exact readback. SAVED, DELIVERED, ACK and RESULT remain distinct; neither an Issue receipt nor a legacy Markdown receipt establishes an agent ACK/result.
+
+```text
+node --experimental-sqlite tests/hub-acceptance-browser.cjs
+PASS owner privacy before any source read
+PASS CSRF and payload validation
+PASS durable idempotency, conflict and owner isolation
+PASS two explicit stable-ID authors are attributed immutably; legacy third user and forged author denied
+PASS actual Worker ingestion renders board, review and historical ideas
+PASS modal focus, Escape and browser back
+PASS owner answer persisted in actual SQLite and shown after browser reload
+PASS mini-chat persistence/reload and owner text XSS safety
+PASS lost POST response retries same immutable id without duplicate SQL record
+PASS source version conflict does not overwrite or enqueue stale answer
+PASS UI keeps conflicting draft and accepts it only after fresh context reopening
+PASS actual Worker waitUntil delivers synthetic Issue comment; stale CAS and legacy blob cannot claim Issues delivery or ACK
+PASS saved state appears before background flush; bounded GET polling displays idea-only delivery without execution or ACK
+MEASURE natural-clock local synthetic click-to-visible-Issues-receipt 1467ms; no browser clock installed/advanced; NOT live GitHub latency
+PASS natural browser timer shows receipt within 10s with one POST and unknown ACK/result
+PASS second mapped author delivers under stored attribution and cannot read the first author queue
+PASS failure before GitHub write stays durable; visible Retry preserves original key and delivers once
+PASS expired durable intent reconciles accepted timeout under four concurrent leases without second GitHub POST
+PASS negative reconciliation is not proof of failed create: absent ambiguous issue stays durable with no repeat POST
+PASS definite remote conflict is persisted as conflict and never overwrites another edit or repeats POST
+PASS visible-tab periodic update and honest source-error/stale-telemetry states
+PASS 390px mobile layout and modal fit without horizontal overflow
+PASS authorization loss clears board/outbox/telemetry and rejects delayed private response
+RESULT 22 passed; synthetic GitHub only; browser board requests 12
+```
+
+The **1467ms** measurement uses a separate browser context without clock instrumentation and includes the natural one-second foreground polling delay. It measures the local synthetic path only. Another scenario advances a simulated clock to test polling deterministically; its wall execution duration is explicitly diagnostic and is not user-perceived or live latency. Neither number measures Cloudflare or real GitHub network latency.
+
+The latest subpath traversal still passed **63/63**, including the revised explicit GitHub Issues not-configured state. CI runs the expanded harness through its existing acceptance command; the new `hub-acceptance-issues-fixture.cjs` never contacts GitHub.
+
+Independent review found two further security/state issues, both corrected by the implementation owners and verified in this harness:
+
+- An explicit author map originally fell through to the legacy username allowlist for unmatched users. Explicit mapping is now authoritative and requires both stable ID and username; stale third users and forged author fields are denied.
+- A definite remote body/destination conflict originally returned `conflict` but persisted `delivery_uncertain`. The persisted state now remains `conflict`, retains its delivery intent and is not automatically reclaimed. Genuine timeouts and absent-marker reconciliation remain uncertain and never authorize a second POST.
+
+The real SQLite race test starts four competing flushes after a simulated lease expiration and confirms one reconciliation winner with only the original GitHub POST. A create that may not have arrived is deliberately **not** resent after negative reads. The visible Retry button submits the original persisted idempotency key and payload; it does not fabricate a new message ID. Confirmed delivery and conflicts do not expose that retry action.
+
+[Synthetic Issues receipt with second-author attribution and unknown ACK/result](../../artifacts/hub/issues-receipt.png)
+
+## Historical baseline
+
+Product code was initially tested through `3dfdfbf`, with the first harness committed as `281a2ea`. Root independently reran that 14-check baseline. Its receipt-import scenario was a local Markdown proof only; it is retained as historical evidence and is now explicitly rejected as canonical Issues delivery by the expanded test.
 
 ## Environment and proof boundary
 
@@ -78,7 +129,7 @@ The CI workflow now runs the UI contract and the actual-Worker browser acceptanc
 
 ## Remaining acceptance dependencies
 
-Production authenticated UI, approved D1 migration/rollout, the outbox extraction and receipt-import transport for the existing scheduled writer, routing to the correct existing executor, and a live executor ACK are not covered by this report. No timer, Claude/Doctor session, production security setting, secret or token permission was changed. Any separate live GitHub CAS experiment must be reported as that distinct leg, not as full browser-to-agent delivery.
+Production authenticated UI, approved D1 migration/rollout, activation of a separately authorized narrowly scoped Issues credential, verified real owner mappings, real GitHub Issues delivery and a live executor ACK/result remain outside this report's proof. The new `ctx.waitUntil` Issues transport was tested locally with synthetic responses; it was not activated in production. The earlier Markdown CAS experiment is a separate historical leg and cannot count as canonical Issues delivery. No timer, Claude/Doctor session, production security setting, secret or token permission was changed by QA.
 
 ## Self-check
 
