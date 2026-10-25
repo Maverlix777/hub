@@ -49,3 +49,7 @@ Keep [PLAN.md](PLAN.md) and [CONTRACT.md](CONTRACT.md) current. Work updates and
 ## Completion report
 
 State the exact integration branch and commit, canonical-source findings without private contents, implemented behavior, commands and results, browser artifacts, live delivery status, draft PR, and remaining dependencies. Do not call a task/thread a sidebar project unless the supported UI actually created one. Never present a local file as an uploaded report or a guessed link as a verified deliverable.
+
+## Selected homepage direction
+
+The approved dashboard-first scope makes the existing board the homepage for already authorized participants, with applications, Claude API and downloads in consistent light navigation. Keep the catalog accessible and all existing authentication, entitlement, logout, API-key and outbox behavior intact. Use one board template at both entry points. The implementation is a separate UI draft; historical release permissions below are baseline records, not blanket authorization for future merge or deployment. See [DASHBOARD-FIRST-PLAN.md](DASHBOARD-FIRST-PLAN.md).

@@ -63,6 +63,14 @@
   window.addEventListener('storage', (event) => {
     if (event.key === 'hub.session.logout') endSession();
   });
+  window.addEventListener('hub:session-ended', () => {
+    if (!signedIn) return;
+    signedIn = false;
+    clearChatData();
+    els.input.value = ''; els.system.value = '';
+    setBusy(false);
+    // The shared header owns the logout POST and subsequent redirect.
+  });
 
   function ensureSession() {
     if (!signedIn) return Promise.resolve(false);
@@ -186,7 +194,8 @@
   function setBusy(busy) {
     els.send.hidden = busy;
     els.stop.hidden = !busy;
-    els.input.disabled = busy;
+    els.input.disabled = busy || !signedIn;
+    els.send.disabled = !signedIn;
   }
   els.stop.addEventListener('click', () => { if (controller) controller.abort(); });
 

@@ -7,24 +7,31 @@
 <meta name="referrer" content="no-referrer">
 <meta name="color-scheme" content="light">
 <meta name="theme-color" content="#f3f5f9">
-<link rel="icon" type="image/png" href="../icons/icon-192.png">
+<link rel="manifest" href="/hub/manifest.webmanifest">
+<link rel="apple-touch-icon" href="/hub/icons/icon-180.png">
+<link rel="icon" type="image/png" href="/hub/icons/icon-192.png">
 <title>Рабочая доска — Хаб</title>
-<link rel="stylesheet" href="../style.css">
-<link rel="stylesheet" href="board.css">
+<link rel="stylesheet" href="/hub/style.css">
+<link rel="stylesheet" href="/hub/apps/board.css">
 </head>
 <body>
-<header class="bar">
-  <a class="btn" id="hub" href="../">← Хаб</a>
-  <h1>Рабочая доска</h1>
-  <span class="private-label">Закрытое рабочее пространство</span>
-  <button id="refresh" type="button">Обновить</button>
+<header class="bar hub-header">
+  <a class="hub-brand" id="hub" href="/hub/" aria-label="Хаб — главная">Хаб<span class="brand-dot" aria-hidden="true"></span></a>
+  <nav class="hub-nav" aria-label="Основная навигация">
+    <a id="nav-board" aria-current="page" href="/hub/" data-nav-app="board" hidden>Доска</a>
+    <a id="nav-apps" href="/hub/index.html">Приложения</a>
+    <a id="nav-chat" href="/hub/apps/chat.html" data-nav-app="chat" hidden>Claude API</a>
+    <a id="nav-downloads" href="/hub/apps/downloads.html" data-nav-app="downloads" hidden>Загрузки</a>
+  </nav>
+  <div class="account" id="account" hidden><span id="account-name"></span><button id="logout" type="button" hidden>Выйти</button></div>
 </header>
 <main class="board-page">
   <section class="intro">
-    <div><p class="eyebrow">ЗАДАЧИ И РЕШЕНИЯ</p><h2>Всё важное — перед глазами</h2>
+    <div><p class="eyebrow">ЗАДАЧИ И РЕШЕНИЯ</p><h1>Рабочая доска</h1>
     <p class="hint">Открой карточку, проверь детали и ответь там, где нужно твоё решение.</p></div>
-    <p id="status" class="status" role="status" aria-live="polite">Загружаем доску…</p>
+    <div class="board-tools"><a class="btn" href="#inbox">Написать команде ↓</a><button id="refresh" type="button">Обновить</button><p id="status" class="status" role="status" aria-live="polite">Загружаем доску…</p></div>
   </section>
+  <p id="session-status" class="session-status" role="status" aria-live="polite" hidden></p>
   <section id="questions" class="panel questions" aria-labelledby="questions-title">
     <div class="section-heading"><h2 id="questions-title">Нужен твой ответ</h2><span id="question-count" class="count">…</span></div>
     <p class="hint">Ответ сохраняется в очереди. Доставка подтверждается отдельной квитанцией.</p>
@@ -47,6 +54,7 @@
   </section>
 </main>
 <dialog id="task-dialog" aria-labelledby="detail-title"><div class="dialog-toolbar"><span id="detail-id" class="eyebrow"></span><button id="close-detail" type="button" aria-label="Закрыть карточку">Закрыть ×</button></div><div id="detail-content"></div></dialog>
-<script src="board.js"></script>
+<script src="/hub/apps/board.js"></script>
+<script src="/hub/hub.js"></script>
 </body>
 </html>
