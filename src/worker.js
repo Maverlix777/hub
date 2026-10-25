@@ -44,14 +44,17 @@ export function boardAuthor(session, env) {
   if (env.BOARD_AUTHORS_JSON !== undefined) {
     let authors;
     try { authors = JSON.parse(env.BOARD_AUTHORS_JSON); } catch { return null; }
-    if (!Array.isArray(authors) || authors.length > 2 || authors.some((author) => !author || Array.isArray(author)
+    // Two people may have three Hub accounts (for example desktop/mobile).
+    // Accounts remain unique; GitHub principals are bounded separately.
+    if (!Array.isArray(authors) || authors.length > 3 || authors.some((author) => !author || Array.isArray(author)
       || Object.keys(author).length !== 3 || !['hubUserId', 'hubUsername', 'githubLogin'].every((key) => Object.hasOwn(author, key))
       || typeof author.hubUserId !== 'string' || !/^[A-Za-z0-9_-]{1,100}$/.test(author.hubUserId)
       || typeof author.hubUsername !== 'string' || !/^[a-z0-9][a-z0-9_.-]{2,31}$/.test(author.hubUsername)
       || typeof author.githubLogin !== 'string' || !/^[A-Za-z0-9](?:[A-Za-z0-9-]{0,37}[A-Za-z0-9])?$/.test(author.githubLogin))) return null;
-    for (const field of ['hubUserId', 'hubUsername', 'githubLogin']) {
+    for (const field of ['hubUserId', 'hubUsername']) {
       if (new Set(authors.map((author) => author[field].toLowerCase())).size !== authors.length) return null;
     }
+    if (new Set(authors.map((author) => author.githubLogin.toLowerCase())).size > 2) return null;
     const mapped = authors.find((author) => author.hubUserId === session.id || author.hubUsername === session.username.toLowerCase());
     return mapped && mapped.hubUserId === session.id && mapped.hubUsername === session.username.toLowerCase() ? { ...mapped } : null;
   }
