@@ -45,6 +45,10 @@ form { display:grid; gap:8px; } form label { font-size:14px; font-weight:600; } 
 .outbox-entry { border-top:1px solid var(--line); padding-top:14px; display:grid; gap:6px; font-size:14px; overflow-wrap:anywhere; }
 .outbox-entry .message-text { white-space:pre-wrap; }
 .outbox-entry .receipt { color:var(--muted); font-size:12px; }
+.outbox-entry .author { font-size:13px; color:var(--muted); }
+.delivery-stages { display:grid; grid-template-columns:minmax(160px,230px) minmax(0,1fr); gap:6px 12px; padding:12px; margin:0; border:1px solid var(--line); border-radius:10px; font-size:12px; }
+.delivery-stages dt { color:var(--muted); } .delivery-stages dd { margin:0; }
+@media(max-width:650px) { .delivery-stages { grid-template-columns:1fr; gap:3px; } .delivery-stages dd { margin-bottom:6px; } }
 .outbox-entry button { justify-self:start; }
 dialog { color:var(--fg); background:#fff; border:1px solid var(--line); border-radius:20px; width:min(900px,calc(100vw - 48px)); max-height:calc(100dvh - 48px); padding:0; box-shadow:0 24px 90px #14233b40; }
 dialog::backdrop { background:#16264188; backdrop-filter:blur(3px); }

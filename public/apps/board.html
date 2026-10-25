@@ -16,7 +16,7 @@
 <header class="bar">
   <a class="btn" id="hub" href="../">← Хаб</a>
   <h1>Рабочая доска</h1>
-  <span class="private-label">Личное пространство</span>
+  <span class="private-label">Закрытое рабочее пространство</span>
   <button id="refresh" type="button">Обновить</button>
 </header>
 <main class="board-page">
@@ -40,7 +40,7 @@
   </div>
   <section id="inbox" class="panel inbox" aria-labelledby="inbox-title">
     <div class="section-heading"><h2 id="inbox-title">Написать Снежанне</h2><span class="eyebrow">ИДЕЯ · ЗАДАНИЕ · УТОЧНЕНИЕ</span></div>
-    <p class="hint">Сообщение попадёт в очередь для следующей проверки. Это не мгновенный чат с агентом.</p>
+    <p class="hint">Сообщения разрешённых авторов сохраняются с указанием автора. Отдельно показываем доставку в GitHub Issues, ответ исполнителя и результат.</p>
     <p id="delivery-status" class="status" role="status">Проверяем доставку…</p>
     <form id="message-form"><label for="message-text">Новое сообщение</label><textarea id="message-text" name="text" rows="3" maxlength="8000" required placeholder="Что нужно сделать или уточнить?"></textarea><div class="composer-actions"><span class="hint">До 8000 символов</span><button class="primary" type="submit">Сохранить сообщение</button></div><p class="form-status" role="status" aria-live="polite"></p></form>
     <h3>Твои сообщения и ответы</h3><ul id="outbox-list" class="outbox-list"><li class="empty">Загружаем очередь…</li></ul>

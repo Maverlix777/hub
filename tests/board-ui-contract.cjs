@@ -99,5 +99,49 @@ const http = require('node:http');
       await race.close();
     }
     console.log('PASS: auth-loss terminal guard rejects delayed board/outbox/POST success; telemetry/details/drafts cleared and controls stay disabled.');
+    // Separate synthetic sessions prove rendering attribution only, not ACLs or
+    // a real mapping of either authorized person to their Hub/GitHub identity.
+    for (const [index,username] of ['synthetic-owner','synthetic-collaborator'].entries()) {
+      const authorPage = await browser.newPage();
+      const author = {hubUserId:`synthetic-${index}`,hubUsername:username,githubLogin:`fixture-${index}`};
+      const receipt = index === 0
+        ? {kind:'issue',url:'https://github.com/Maverlix777/agent-handoffs/issues/123',issueNumber:123,commentId:null,deliveredAt:Date.now()}
+        : {kind:'comment',url:'https://github.com/Maverlix777/agent-handoffs/issues/123#issuecomment-456',issueNumber:123,commentId:456,deliveredAt:Date.now()};
+      await authorPage.route('**/hub/api/**',route => route.fulfill({json:route.request().url().endsWith('/board') ? {cards:[],sources:[]} : {
+        items:[{id:`author-${index}`,kind:'message',text:'Synthetic authored message',author,status:'synced',receipt,agentAck:null,agentResult:null},
+          {id:'legacy',kind:'message',text:'Legacy receipt',status:'synced',receipt:{url:'https://github.com/Maverlix777/agent-handoffs/blob/abc/file.md',commit:'abc'}}],
+        delivery:{status:'not_configured'}}}));
+      await authorPage.goto(`http://127.0.0.1:${server.address().port}/hub/apps/board.html`);
+      const entry=authorPage.locator(`[data-receipt-id="author-${index}"]`);
+      await entry.waitFor();
+      assert.equal(await entry.locator('.author').textContent(),`Автор: ${username} · GitHub @fixture-${index}`);
+      assert.deepEqual(await entry.locator('.delivery-stages dd').allTextContents(),['Сохранено на сервере','Доставка подтверждена','Не подтверждён','Не подтверждён']);
+      assert.equal(await entry.locator('a').getAttribute('href'),receipt.url);
+      assert.equal(await authorPage.locator('[data-receipt-id="legacy"] a').count(),0);
+      assert.equal((await authorPage.locator('[data-receipt-id="legacy"] .delivery-stages dd').allTextContents())[1],'Не подтверждено');
+      assert.match(await authorPage.locator('#delivery-status').textContent(),/быстрая доставка пока не подтверждена/);
+      await authorPage.close();
+    }
+    console.log('PASS: two synthetic author snapshots, issue/comment receipts, SAVED/DELIVERED/ACK/RESULT separation; legacy Markdown receipt not treated as Issues delivery.');
+    const polling = await browser.newPage(); let submitted=null; let postCount=0; let receiptReads=0;
+    await polling.route('**/hub/api/**',route => {
+      if(route.request().url().endsWith('/board')) return route.fulfill({json:{cards:[],sources:[]}});
+      if(route.request().method()==='POST') {
+        postCount++; submitted={...route.request().postDataJSON(),id:'poll-receipt',status:'pending',author:{hubUsername:'synthetic-author'}};
+        return route.fulfill({status:201,json:{item:submitted}});
+      }
+      if(submitted) receiptReads++;
+      return route.fulfill({json:{items:submitted ? [{...submitted,status:'synced',receipt:{kind:'issue',url:'https://github.com/Maverlix777/agent-handoffs/issues/123',issueNumber:123,commentId:null,deliveredAt:Date.now()}}] : [],delivery:{status:'enabled'}}});
+    });
+    await polling.goto(`http://127.0.0.1:${server.address().port}/hub/apps/board.html`);
+    await polling.locator('#message-text').fill('Synthetic immediate save then receipt');
+    await polling.locator('#message-form button').click();
+    await polling.locator('[data-receipt-id="poll-receipt"]').waitFor();
+    assert.equal((await polling.locator('.delivery-stages dd').allTextContents())[1],'Не подтверждено');
+    await polling.locator('[data-receipt-id="poll-receipt"] a').waitFor({timeout:5000});
+    assert.equal(postCount,1); assert.equal(receiptReads,1);
+    assert.equal((await polling.locator('.delivery-stages dd').allTextContents())[1],'Доставка подтверждена');
+    await polling.close();
+    console.log('PASS: saved immediately, bounded foreground GET observes verified issue receipt without a second POST or 60-second wait; synthetic API only.');
   } finally { if (browser) await browser.close(); await new Promise(resolve=>server.close(resolve)); }
 })().catch(error=>{console.error(error);process.exitCode=1;});
