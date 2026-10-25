@@ -6,6 +6,7 @@
   const drafts = new Map();
   let cards = []; let sources = []; let items = []; let loading = false; let openKey = null;
   let focusBefore = null; let lastRead = null; let outboxAvailable = false; let nextCursor = null;
+  let authGeneration = 0; let authInvalid = false;
   const cardKey = (card) => card.key || `${card.sourcePath || card.source}::${card.id}`;
   function el(tag, className, text) {
     const node = document.createElement(tag);
@@ -85,6 +86,7 @@
   }
   function metric(list, label, value) { list.append(el('dt', '', label), el('dd', '', value || 'Не указано')); }
   function openCard(card, push) {
+    if (authInvalid) return;
     const key = cardKey(card); focusBefore = document.activeElement; openKey = key;
     if (push) history.pushState({ ...history.state, hubTask:key }, '', '#task');
     $('detail-id').textContent = `${card.id} · ${card.source || 'Задача'}`;
@@ -113,6 +115,7 @@
     }
     if (!dialog.open) dialog.showModal();
     document.body.classList.add('modal-open'); $('close-detail').focus();
+    dialog.scrollTop = 0; content.scrollTop = 0;
   }
   function closeCard(navigate) {
     if (!dialog.open) return;
@@ -128,15 +131,35 @@
     const card = cards.find((entry) => cardKey(entry) === key);
     if (card && openKey !== key) openCard(card, false);
   }
+  function requireActiveSession(generation = authGeneration) {
+    if (authInvalid || generation !== authGeneration) { const error = new Error('auth_invalidated'); error.code = 'auth_invalidated'; throw error; }
+  }
+  function invalidateSession() {
+    if (authInvalid) return;
+    authInvalid = true; authGeneration += 1;
+    cards = []; sources = []; items = []; drafts.clear(); nextCursor = null; lastRead = null; outboxAvailable = false;
+    closeCard(false); render(); renderOutbox();
+    $('detail-content').replaceChildren(); $('detail-id').textContent = '';
+    $('telemetry').replaceChildren(el('h2','','Снежанна'),el('p','hint','Доступ завершён. Данные скрыты.'));
+    $('q').value = ''; $('q').disabled = true;
+    $('message-text').value = ''; $('message-text').disabled = true;
+    $('message-form').querySelector('button').disabled = true;
+    $('message-form').querySelector('.form-status').textContent = '';
+    $('refresh').disabled = true;
+    $('status').textContent = 'Доступ завершён. Войди снова, чтобы открыть личную доску.';
+    $('delivery-status').textContent = 'Очередь скрыта: требуется доступ владельца.';
+  }
   async function api(path, options) {
+    const generation = authGeneration; requireActiveSession(generation);
     const response = await fetch(`/hub/api/${path}`, { credentials:'same-origin', cache:'no-store', ...options });
     if (response.status === 401 || response.status === 403) {
-      cards = []; sources = []; items = []; drafts.clear(); render(); renderOutbox(); closeCard(false);
-      $('message-text').value = ''; $('message-form').querySelector('button').disabled = true;
+      invalidateSession();
       if (response.status === 401) window.location.replace('/hub/login/');
-      throw new Error(response.status === 401 ? 'Сессия завершена. Войди снова.' : 'Доступ только владельцу.');
+      requireActiveSession(generation);
     }
+    requireActiveSession(generation);
     const data = await response.json().catch(() => ({}));
+    requireActiveSession(generation);
     if (!response.ok) { const error = new Error(data.error || `http_${response.status}`); error.code = data.error; throw error; }
     return data;
   }
@@ -161,7 +184,7 @@
     if (draft.payload) { submit.textContent = 'Повторить сохранение'; status.textContent = 'Предыдущая отправка не подтверждена. Повтор использует тот же идентификатор и текст.'; }
     textarea.addEventListener('input', () => { draft.text = textarea.value; });
     form.addEventListener('submit', async (event) => {
-      event.preventDefault(); if (draft.busy) return;
+      event.preventDefault(); if (draft.busy || authInvalid) return;
       if (!textarea.value.trim()) { textarea.setCustomValidity('Введи текст сообщения.'); textarea.reportValidity(); return; }
       textarea.setCustomValidity('');
       if (!draft.payload) draft.payload = {idempotencyKey:crypto.randomUUID(),kind,text:textarea.value.trim(),...(target ? {target} : {})};
@@ -169,18 +192,20 @@
       status.className = 'form-status'; status.textContent = 'Сохраняем…';
       try {
         const result = await api('outbox', {method:'POST',headers:{'Content-Type':'application/json','X-Hub-Request':'1'},body:JSON.stringify(draft.payload)});
+        requireActiveSession();
         if (!result.item?.id) throw new Error('invalid_receipt');
         items = [result.item,...items.filter((item) => item.id !== result.item.id)]; renderOutbox();
         status.className = 'form-status success'; status.textContent = result.item.status === 'synced' ? 'Доставка подтверждена. Квитанция — в очереди.' : 'Сохранено в очереди. Доставка в GitHub ещё не подтверждена.';
         draft.text = ''; draft.payload = null; textarea.value = ''; textarea.readOnly = false; submit.textContent = kind === 'answer' ? 'Сохранить ответ' : 'Сохранить сообщение';
       } catch (error) {
+        if (authInvalid) return;
         status.className = 'form-status error'; status.textContent = errors[error.code] || 'Сохранение не подтверждено. Текст остаётся в этой вкладке. Повтори запрос с тем же идентификатором.';
         submit.textContent = 'Повторить сохранение';
         if (['invalid_payload','invalid_target','target_conflict'].includes(error.code)) {
           draft.payload = null; textarea.readOnly = false;
           if (error.code !== 'invalid_payload') { draft.blocked = true; }
         }
-      } finally { draft.busy = false; submit.disabled = Boolean(draft.blocked); }
+      } finally { draft.busy = false; submit.disabled = authInvalid || Boolean(draft.blocked); }
     });
     textarea.addEventListener('input', () => textarea.setCustomValidity(''));
   }
@@ -204,20 +229,22 @@
         more.disabled = true;
         try {
           const data = await api(`outbox?before=${encodeURIComponent(nextCursor)}`);
+          requireActiveSession();
           const seen = new Set(items.map((item) => item.id));
           items.push(...(data.items || []).filter((item) => !seen.has(item.id)));
           nextCursor = data.nextCursor || null; renderOutbox();
-        } catch { more.disabled = false; more.textContent = 'Не удалось загрузить. Повторить'; }
+        } catch { more.disabled = authInvalid; more.textContent = authInvalid ? 'Доступ завершён' : 'Не удалось загрузить. Повторить'; }
       });
       const row = el('li'); row.append(more); list.append(row);
     }
   }
   async function loadOutbox() {
+    if (authInvalid) return;
     try {
-      const data = await api('outbox'); items = Array.isArray(data.items) ? data.items : []; nextCursor = data.nextCursor || null; outboxAvailable = true;
+      const data = await api('outbox'); requireActiveSession(); items = Array.isArray(data.items) ? data.items : []; nextCursor = data.nextCursor || null; outboxAvailable = true;
       $('delivery-status').textContent = data.delivery?.status === 'not_configured' ? 'Сохранение доступно. Канал доставки ещё не подключён; сообщения останутся в ожидании.' : 'Статусы получены из очереди. Доставка подтверждается квитанцией GitHub.';
       renderOutbox();
-    } catch (error) { outboxAvailable = false; $('delivery-status').textContent = 'Не удалось прочитать очередь. Доставку подтвердить нельзя.'; $('delivery-status').className = 'status error'; if (!items.length) renderOutbox(); }
+    } catch (error) { if (authInvalid) return; outboxAvailable = false; $('delivery-status').textContent = 'Не удалось прочитать очередь. Доставку подтвердить нельзя.'; $('delivery-status').className = 'status error'; if (!items.length) renderOutbox(); }
   }
   function renderTelemetry(data) {
     const root = $('telemetry'); root.replaceChildren(el('h2','','Снежанна'));
@@ -243,17 +270,18 @@
     root.append(el('p','hint','Доска обновляется при открытии и раз в минуту, пока вкладка видна. Это чтение данных, не новый запуск Снежанны.'));
   }
   async function load() {
-    if (loading) return; loading = true; $('refresh').disabled = true; $('columns').setAttribute('aria-busy','true');
+    if (loading || authInvalid) return; loading = true; $('refresh').disabled = true; $('columns').setAttribute('aria-busy','true');
     $('status').textContent = lastRead ? `Обновляем… Последнее чтение: ${date(lastRead)}` : 'Загружаем доску…';
     try {
-      const board = await api('board'); cards = Array.isArray(board.cards) ? board.cards : []; sources = Array.isArray(board.sources) ? board.sources : [];
+      const board = await api('board'); requireActiveSession(); cards = Array.isArray(board.cards) ? board.cards : []; sources = Array.isArray(board.sources) ? board.sources : [];
       lastRead = new Date().toISOString();
       $('status').className = 'status'; $('status').textContent = `Карточек: ${cards.length}. Прочитано: ${date(lastRead)}${board.unmappedCount ? `. Не распознано строк: ${board.unmappedCount}` : ''}`;
       render(); renderTelemetry(board.telemetry); restoreHistory();
     } catch (error) {
+      if (authInvalid) return;
       $('status').className = 'status error'; $('status').textContent = `Не удалось обновить доску.${lastRead ? ` Показан старый снимок от ${date(lastRead)}.` : ' Данные не прочитаны.'}`;
       if (!lastRead) { $('question-list').replaceChildren(el('li','error','Вопросы не загружены')); $('idea-list').replaceChildren(el('li','error','Ошибка чтения источников; это не означает отсутствие идей.')); $('columns').replaceChildren(el('p','error','Доска недоступна. Нажми «Обновить», чтобы повторить.')); }
-    } finally { loading = false; $('refresh').disabled = false; $('columns').setAttribute('aria-busy','false'); }
+    } finally { loading = false; $('refresh').disabled = authInvalid; $('columns').setAttribute('aria-busy','false'); }
     await loadOutbox();
   }
   $('q').addEventListener('input',render);

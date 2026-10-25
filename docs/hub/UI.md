@@ -31,3 +31,9 @@ The UI contract test uses synthetic API responses. It is not evidence of Worker 
 - Page-to-Worker is authenticated fetch; source data enters text-only DOM; receipt links pass HTTPS validation.
 - Checks above passed with their stated scope. No live production or GitHub delivery claim.
 - User sees readable state labels and exact server receipt IDs. Missing evidence is never presented as completion.
+
+## Review fixes
+
+The auth-loss review found that concurrent successful responses could arrive after another request returned 401/403. Added a terminal per-page invalidation generation checked around fetch/JSON and before consumers render. Invalidation clears telemetry, closed-modal contents, drafts and search, and disables forms/refresh permanently until a new authenticated page load. Finally blocks cannot re-enable them. Real Edge synthetic regression covers delayed board GET, outbox GET and POST successes after concurrent 403; all three reject private content resurrection.
+
+Independent visual QA found retained modal scroll position after reopening. Opening a card now resets dialog/content scroll to zero after focus. The 390px browser regression scrolls down, closes/reopens and asserts title visibility and zero scroll.

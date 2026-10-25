@@ -52,7 +52,52 @@ const http = require('node:http');
     assert.equal(await page.evaluate(()=>document.documentElement.scrollWidth<=window.innerWidth),true);
     await page.locator('#question-list button').click();
     assert.equal(Math.round((await page.locator('#task-dialog').boundingBox()).width),390);
+    await page.locator('#task-dialog').evaluate(node=>{node.scrollTop=node.scrollHeight;});
+    await page.keyboard.press('Escape'); await page.waitForFunction(()=>!document.getElementById('task-dialog').open);
+    await page.locator('#question-list button').click();
+    assert.equal(await page.locator('#task-dialog').evaluate(node=>node.scrollTop),0);
+    assert.ok((await page.locator('#detail-title').boundingBox()).y < 200);
     assert.deepEqual(failures,[]);
     console.log('PASS: modal/focus/Escape/back, literal XSS, same-key retry, receipt reload, 390px layout; synthetic API only.');
+    await page.close();
+    // Delayed successful requests must never resurrect private content after any
+    // concurrent request discovers auth loss. Exercise each asynchronous reader.
+    for (const delayed of ['board','outbox','post']) {
+      const race = await browser.newPage();
+      let armed = false; let held; let capture;
+      const captured = new Promise(resolve => { capture = resolve; });
+      const privateCard = {...card,title:'PRIVATE_CARD',description:'PRIVATE_DETAIL'};
+      const boardData = {cards:[privateCard],sources:[],telemetry:{status:'available',as_of:new Date().toISOString(),events:[{task_id:'PRIVATE_EVENT',state:'running'}]}};
+      const outboxData = {items:[{id:'private-receipt',kind:'message',text:'PRIVATE_MESSAGE',status:'pending'}]};
+      await race.route('**/hub/api/**',async route => {
+        const req=route.request(); const isBoard=new URL(req.url()).pathname.endsWith('/board'); const isPost=req.method()==='POST';
+        const shouldHold=armed && ((delayed==='board' && isBoard) || (delayed==='outbox' && !isBoard && !isPost) || (delayed==='post' && isPost));
+        if(shouldHold) {held=route;capture();return;}
+        if(armed && ((delayed==='post' && isBoard) || (delayed!=='post' && isPost))) return route.fulfill({status:403,json:{error:'forbidden'}});
+        return route.fulfill({json:isBoard ? boardData : outboxData});
+      });
+      await race.goto(`http://127.0.0.1:${server.address().port}/hub/apps/board.html`);
+      await race.locator('#outbox-list .outbox-entry').waitFor();
+      assert.match(await race.locator('#telemetry').textContent(),/PRIVATE_EVENT/);
+      await race.locator('#question-list button').click();
+      await race.keyboard.press('Escape'); await race.waitForFunction(()=>!document.getElementById('task-dialog').open);
+      await race.locator('#message-text').fill('PRIVATE_DRAFT'); armed=true;
+      if(delayed==='post') await race.locator('#message-form button').click();
+      else await race.locator('#refresh').click();
+      await captured;
+      if(delayed==='post') await race.locator('#refresh').click();
+      else await race.locator('#message-form button').click();
+      await race.waitForFunction(()=>document.getElementById('message-text').disabled);
+      const completed=race.waitForResponse(response=>response.status()===200 && response.url().includes('/hub/api/'));
+      await held.fulfill({json:delayed==='board' ? boardData : delayed==='post' ? {item:{id:'late',text:'PRIVATE_LATE',status:'pending'}} : outboxData});
+      await completed; await race.waitForTimeout(75);
+      assert.doesNotMatch(await race.locator('body').textContent(),/PRIVATE_/);
+      assert.equal(await race.locator('#message-text').inputValue(),'');
+      assert.equal(await race.locator('#message-form button').isDisabled(),true);
+      assert.equal(await race.locator('#refresh').isDisabled(),true);
+      assert.equal(await race.locator('#detail-content').textContent(),'');
+      await race.close();
+    }
+    console.log('PASS: auth-loss terminal guard rejects delayed board/outbox/POST success; telemetry/details/drafts cleared and controls stay disabled.');
   } finally { if (browser) await browser.close(); await new Promise(resolve=>server.close(resolve)); }
 })().catch(error=>{console.error(error);process.exitCode=1;});
