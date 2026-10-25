@@ -133,8 +133,12 @@ const web = http.createServer((req, res) => {
       const ctx = await browser.newContext({ viewport: { width, height: 844 }, colorScheme: 'light', ignoreHTTPSErrors: true });
       const page = await ctx.newPage(); watch(page);
       await page.goto(`${SITE}index.html`);
-      const tiles = await page.locator('.tile').count();
-      check(`${width}px: 4 плитки`, tiles === 4, tiles);
+      // The synthetic session has no app restrictions; require the exact catalog,
+      // including order and count, rather than a stale hardcoded tile total.
+      const expectedTiles = await page.evaluate(() => JSON.parse(document.getElementById('apps').textContent).map((app) => app.id));
+      const actualTiles = await page.locator('.tile').evaluateAll((nodes) => nodes.map((node) => node.dataset.id));
+      check(`${width}px: плитки точно соответствуют каталогу (${expectedTiles.length})`,
+        JSON.stringify(actualTiles) === JSON.stringify(expectedTiles), actualTiles.join(' | '));
       const overflow = await page.evaluate(() => document.documentElement.scrollWidth - window.innerWidth);
       check(`${width}px: нет горизонтального скролла`, overflow <= 0, overflow);
       const cols = await page.evaluate(() => getComputedStyle(document.getElementById('grid')).gridTemplateColumns.split(' ').length);
