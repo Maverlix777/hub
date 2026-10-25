@@ -177,6 +177,8 @@
     $('q').value = ''; $('q').disabled = true;
     $('message-text').value = ''; $('message-text').disabled = true;
     $('message-form').querySelector('button').disabled = true;
+    for (const id of ['snezhana-text','snezhana-to']) { const node = $(id); if (node) { node.value = id === 'snezhana-to' ? 'idea' : ''; node.disabled = true; } }
+    const sbtn = document.querySelector('#snezhana-form button[type="submit"]'); if (sbtn) sbtn.disabled = true;
     $('message-form').querySelector('.form-status').textContent = '';
     $('refresh').disabled = true;
     $('status').textContent = 'Доступ завершён. Войди снова, чтобы открыть личную доску.';
@@ -214,15 +216,16 @@
     // An uncertain network result must retain its original immutable payload/key.
     if (!draft.payload && target?.revision !== draft.targetRevision) { draft.blocked = false; draft.targetRevision = target?.revision; }
     textarea.value = draft.text;
-    textarea.readOnly = Boolean(draft.payload); submit.disabled = draft.busy || Boolean(draft.blocked);
+    const picker = form.querySelector('select'); const lock = (v) => { textarea.readOnly = v; if (picker) picker.disabled = v; };
+    lock(Boolean(draft.payload)); submit.disabled = draft.busy || Boolean(draft.blocked);
     if (draft.payload) { submit.textContent = 'Повторить сохранение'; status.textContent = 'Предыдущая отправка не подтверждена. Повтор использует тот же идентификатор и текст.'; }
     textarea.addEventListener('input', () => { draft.text = textarea.value; });
     form.addEventListener('submit', async (event) => {
       event.preventDefault(); if (draft.busy || authInvalid) return;
       if (!textarea.value.trim()) { textarea.setCustomValidity('Введи текст сообщения.'); textarea.reportValidity(); return; }
       textarea.setCustomValidity('');
-      if (!draft.payload) draft.payload = {idempotencyKey:crypto.randomUUID(),kind,text:textarea.value.trim(),...(target ? {target} : {})};
-      draft.busy = true; submit.disabled = true; textarea.readOnly = true;
+      if (!draft.payload) draft.payload = {idempotencyKey:crypto.randomUUID(),kind,text:textarea.value.trim(),...(target ? {target} : {}),...(picker && picker.value !== 'idea' ? {addressee:picker.value} : {})};
+      draft.busy = true; submit.disabled = true; lock(true);
       status.className = 'form-status'; status.textContent = 'Сохраняем…';
       try {
         const result = await api('outbox', {method:'POST',headers:{'Content-Type':'application/json','X-Hub-Request':'1'},body:JSON.stringify(draft.payload)});
@@ -230,14 +233,14 @@
         if (!result.item?.id) throw new Error('invalid_receipt');
         items = [result.item,...items.filter((item) => item.id !== result.item.id)]; renderOutbox();
         status.className = 'form-status success'; status.textContent = result.item.status === 'synced' && issueReceipt(result.item.receipt) ? 'Сохранено и доставлено в GitHub Issues. Ответ исполнителя и результат проверяются отдельно.' : 'Сохранено в очереди. Доставка в GitHub Issues ещё не подтверждена.';
-        draft.text = ''; draft.payload = null; textarea.value = ''; textarea.readOnly = false; submit.textContent = kind === 'answer' ? 'Сохранить ответ' : 'Сохранить сообщение';
+        draft.text = ''; draft.payload = null; textarea.value = ''; lock(false); submit.textContent = kind === 'answer' ? 'Сохранить ответ' : 'Сохранить сообщение';
         if (result.item.status === 'pending') checkReceipt(result.item.id);
       } catch (error) {
         if (authInvalid) return;
         status.className = 'form-status error'; status.textContent = errors[error.code] || 'Сохранение не подтверждено. Текст остаётся в этой вкладке. Повтори запрос с тем же идентификатором.';
         submit.textContent = 'Повторить сохранение';
         if (['invalid_payload','invalid_target','target_conflict'].includes(error.code)) {
-          draft.payload = null; textarea.readOnly = false;
+          draft.payload = null; lock(false);
           if (error.code !== 'invalid_payload') { draft.blocked = true; }
         }
       } finally { draft.busy = false; submit.disabled = authInvalid || Boolean(draft.blocked); }
@@ -442,6 +445,10 @@
   window.addEventListener('hub:session-ended',invalidateSession);
   window.addEventListener('beforeunload',(event) => { if ([...drafts.values()].some((draft) => draft.text || draft.payload)) { event.preventDefault(); event.returnValue = ''; } });
   setupForm($('message-form'),'message',null,'message');
+  setupForm($('snezhana-form'),'message',null,'snezhana');
+  function setPanel(open) { $('snezhana-body').hidden = !open; $('snezhana-toggle').setAttribute('aria-expanded', String(open)); try { localStorage.setItem('hub.board.snezhana', open ? '1' : '0'); } catch { /* ignore */ } }
+  $('snezhana-toggle').addEventListener('click',() => setPanel($('snezhana-body').hidden));
+  setPanel((() => { try { return localStorage.getItem('hub.board.snezhana') !== '0'; } catch { return true; } })());
   window.setInterval(() => { if (!document.hidden) load(); },60000);
   document.addEventListener('visibilitychange',() => { if (!document.hidden) load(); });
   load();
