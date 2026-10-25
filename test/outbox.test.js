@@ -32,10 +32,10 @@ function fixture(migrate = true) {
     sqlite.prepare('INSERT INTO sessions(token_hash,user_id,created_at,expires_at) VALUES(?,?,1,?)').run(hash, name, Date.now() + 3600000);
     return `__Host-hub_session=${token}`;
   }
-  const request = (method, body, cookie, headers = {}, path = '/hub/api/outbox', override = {}) => worker.fetch(new Request(origin + path, {
+  const request = (method, body, cookie, headers = {}, path = '/hub/api/outbox', override = {}, ctx = undefined) => worker.fetch(new Request(origin + path, {
     method, headers: { ...(cookie ? { cookie } : {}), origin, 'content-type': 'application/json', 'X-Hub-Request': '1', 'CF-Connecting-IP': '192.0.2.1', ...headers },
     ...(body === undefined ? {} : { body: typeof body === 'string' ? body : JSON.stringify(body) }),
-  }), { ...env, ...override });
+  }), { ...env, ...override }, ctx);
   return { sqlite, env, session, request };
 }
 
@@ -300,4 +300,87 @@ test('missing flag or separate Issues token never starts background delivery', a
     }, body: JSON.stringify(message()) }), { ...f.env, ...config }, ctx);
     assert.equal(response.status, 201); assert.equal((await response.json()).item.status, 'pending');
   }
+});
+
+function recoveryTransport(t) {
+  const originalFetch = globalThis.fetch;
+  t.after(() => { globalThis.fetch = originalFetch; });
+  const api = 'https://api.github.com/repos/Maverlix777/agent-handoffs';
+  const state = { posts: 0, remote: null };
+  const issue = (body) => ({ number: 7, body, repository_url: api,
+    html_url: 'https://github.com/Maverlix777/agent-handoffs/issues/7' });
+  globalThis.fetch = async (url, init) => {
+    if (url === api) return Response.json({ full_name: 'Maverlix777/agent-handoffs', private: true, visibility: 'private', has_issues: true });
+    if (url === `${api}/labels/idea`) return Response.json({ name: 'idea' });
+    if (url === `${api}/issues` && init.method === 'POST') {
+      state.posts++;
+      state.remote = issue(JSON.parse(init.body).body);
+      return Response.json(state.remote);
+    }
+    if (String(url).startsWith(`${api}/issues?`)) return Response.json(state.remote ? [state.remote] : []);
+    assert.equal(url, `${api}/issues/7`);
+    return Response.json(state.remote);
+  };
+  return { state, issue };
+}
+
+const recoveryConfig = { HUB_ISSUES_ENABLED: 'true', HUB_ISSUES_GITHUB_TOKEN: 'synthetic-issues-token-not-real' };
+
+test('persisted pending submission resumes by same-key POST after delivery is enabled, without a second row or issue', async (t) => {
+  const f = fixture(); t.after(() => f.sqlite.close()); const owner = await f.session('owner');
+  const transport = recoveryTransport(t), tasks = [], ctx = { waitUntil(task) { tasks.push(task); } };
+  const payload = message();
+  const saved = await (await f.request('POST', payload, owner, {}, undefined, {}, ctx)).json();
+  assert.equal(saved.item.status, 'pending'); assert.equal(tasks.length, 0);
+  assert.equal((await (await f.request('GET', undefined, owner)).json()).items[0].id, saved.item.id);
+  const retries = await Promise.all(Array.from({ length: 2 }, () => f.request('POST', payload, owner, {}, undefined, recoveryConfig, ctx)));
+  for (const response of retries) {
+    assert.equal(response.status, 200);
+    const body = await response.json(); assert.equal(body.duplicate, true); assert.equal(body.item.id, saved.item.id);
+  }
+  await Promise.all(tasks);
+  const after = (await (await f.request('GET', undefined, owner)).json()).items;
+  assert.equal(after.length, 1); assert.equal(after[0].id, saved.item.id); assert.equal(after[0].status, 'synced');
+  assert.equal(transport.state.posts, 1); assert.equal(after[0].agentAck, null);
+});
+
+test('same-key pending retry recovers a transient claim failure and expired pre-intent crash safely', async (t) => {
+  const f = fixture(); t.after(() => f.sqlite.close()); const owner = await f.session('owner');
+  const transport = recoveryTransport(t), tasks = [], ctx = { waitUntil(task) { tasks.push(task); } };
+  let failClaim = true;
+  const broken = { prepare(sql) {
+    if (failClaim && sql.includes("SET delivery_phase = 'leased'")) { failClaim = false; throw new Error('synthetic unavailable'); }
+    return f.env.HUB_DB.prepare(sql);
+  } };
+  const payload = message();
+  const saved = await (await f.request('POST', payload, owner, {}, undefined, { ...recoveryConfig, HUB_DB: broken }, ctx)).json();
+  await Promise.all(tasks); assert.equal(transport.state.posts, 0);
+  const pending = (await (await f.request('GET', undefined, owner)).json()).items[0];
+  assert.equal(pending.status, 'pending'); assert.equal(pending.id, saved.item.id);
+  const abandoned = await claimDelivery(f.env.HUB_DB, pending.id, Date.now() - 120000);
+  assert.equal(abandoned.mode, 'deliver'); // Simulate process exit before durable intent.
+  const retry = await f.request('POST', payload, owner, {}, undefined, recoveryConfig, ctx);
+  assert.equal(retry.status, 200); assert.equal((await retry.json()).item.id, pending.id);
+  await Promise.all(tasks);
+  const after = (await (await f.request('GET', undefined, owner)).json()).items;
+  assert.equal(after.length, 1); assert.equal(after[0].status, 'synced'); assert.equal(transport.state.posts, 1);
+});
+
+test('same-key pending retry after post-intent crash reconciles existing remote issue without another POST', async (t) => {
+  const f = fixture(); t.after(() => f.sqlite.close()); const owner = await f.session('owner');
+  const transport = recoveryTransport(t), tasks = [], ctx = { waitUntil(task) { tasks.push(task); } };
+  const payload = message();
+  const saved = await (await f.request('POST', payload, owner)).json();
+  const oldTime = Date.now() - 120000;
+  const abandoned = await claimDelivery(f.env.HUB_DB, saved.item.id, oldTime);
+  const { makeIssueIntent } = await import('../src/issues-delivery.js');
+  const intent = await makeIssueIntent(abandoned.item, recoveryConfig);
+  assert.deepEqual(await beginDeliveryAttempt(f.env.HUB_DB, saved.item.id, abandoned.attempt, intent, oldTime + 1), { applied: true });
+  transport.state.remote = transport.issue(intent.body); // Synthetic remote write succeeded before process exit.
+  const retry = await f.request('POST', payload, owner, {}, undefined, recoveryConfig, ctx);
+  assert.equal(retry.status, 200); assert.equal((await retry.json()).item.id, saved.item.id);
+  await Promise.all(tasks);
+  const after = (await (await f.request('GET', undefined, owner)).json()).items;
+  assert.equal(after.length, 1); assert.equal(after[0].status, 'synced');
+  assert.equal(transport.state.posts, 0); assert.equal(after[0].receipt.issueNumber, 7);
 });
