@@ -1,56 +1,47 @@
-# Owner outbox implementation and rollout boundary
+# Dashboard authors, durable outbox and canonical Issues delivery
 
-This code adds durable owner messages to the existing Cloudflare Worker and existing D1 binding `HUB_DB`. It does not change `BOARD_GITHUB_TOKEN`, add credentials, create a second producer, or activate a timer. Production schema migration and deployment are not performed by this change.
+## Current contract
 
-## API
+GitHub Issues are the canonical destination for new dashboard messages. New messages create issues with the existing `idea` label; answers append comments to existing issues selected by trusted server configuration. Neither submission nor GitHub delivery authorizes execution or changes agent permissions. Agent ACK and result remain unknown without real evidence. The old Markdown adapter is historical test evidence, not the production destination.
 
-`GET /hub/api/outbox` requires an authenticated board owner. It returns `items`, `nextCursor` and `delivery: {status: "not_configured"}`. Pages contain at most 100 items; pass `before=<nextCursor>` to read the next page. A missing migration or storage failure returns HTTP 503 `outbox_unavailable`, not an empty list.
+The Worker reuses HUB_DB, existing passkey sessions, CSRF protection and HMAC rate limiting. Prepared migrations 0002_owner_outbox.sql and 0003_owner_issues.sql have only been applied to local test databases. No production schema, secret, ACL, scheduler or deployment has changed.
 
-`POST /hub/api/outbox` requires the same owner session, exact canonical Origin, JSON, `X-Hub-Request: 1`, and same-origin Fetch Metadata when supplied. Existing Secure/HttpOnly/SameSite=Strict session cookies and response security headers remain intact. No cross-origin access is enabled. The payload is:
+## Author authorization
 
-```json
-{"idempotencyKey":"f23eccdf-29ca-4e76-bf60-04b79caf2000","kind":"answer","text":"Synthetic answer","target":{"sourcePath":"proposals/example/BOARD.md","taskId":"EX-1","revision":"aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"}}
-```
+Optional server configuration BOARD_AUTHORS_JSON is an array of at most two objects with exactly {hubUserId,hubUsername,githubLogin}. It binds a GitHub identity to an existing stable Hub user ID and exact normalized username. Username registration alone cannot acquire permission. Duplicate identities, malformed configuration and mismatched IDs fail closed.
 
-Only `answer` and `message` are allowed. An answer requires a target. Messages must omit the target or set it to `null`; the trusted operator selects their inbox route. Target paths, uppercase task IDs ending in a hyphen and digits, and 40-hex revisions use the delivery adapter's grammar. `revision` is the exact **source file blob SHA**, not the task ID and not a branch or commit SHA. The Worker freshly resolves a target against the board before first persistence. Changed source revision returns HTTP 409 `target_conflict`; clients keep the draft and require review of the refreshed task before resubmission. No automatic revision replacement is allowed. Existing same-key retries are resolved before source validation, so an already saved answer remains retrievable after source drift.
+When this explicit mapping exists it is authoritative: stale BOARD_OWNER_USERNAME names cannot gain access. Only when mapping is absent does the existing owner allowlist retain prior behavior, with githubLogin:null honestly indicating no GitHub attribution mapping. The colleague's real Hub account mapping is unknown and is not guessed or activated.
 
-Text is plain data, 1–8000 characters, with disallowed control characters rejected. Rendering must use `textContent`. Unknown payload keys, unsafe paths, invalid task identifiers and revisions are rejected. Payload text never becomes a shell command or adapter name. The server binds messages to the session's user ID; there is no client-controlled owner field. Writes are limited to 20 per owner/IP per minute using the existing HMAC-backed limiter; missing limiter prerequisites fail closed.
+Every new item stores an immutable server-derived author snapshot. Clients cannot supply it. Administrator mapping changes cannot rewrite previous attribution. Each author reads only their own submissions; both configured authors can view the shared board.
 
-Success returns HTTP 201 `{item}`. Exact duplicate requests return HTTP 200 `{item,duplicate:true}`. Reusing a key with different text, kind or target returns HTTP 409 `idempotency_conflict`. An atomic unique `(owner_id,idempotency_key)` constraint handles concurrent retries without a second message. Items are immutable after submission; subsequent answers get new keys. Reads are owner scoped.
+## Browser API
 
-## Receipt meaning
+GET /hub/api/outbox returns {items,nextCursor,delivery}. Pages contain at most 100 records; use ?before=<nextCursor> for older records. Items contain author, status, version, receipt, error, timestamps, agentAck:null and agentResult:null. Missing schema or failed storage returns503 outbox_unavailable, never an empty queue.
 
-An accepted item has `status: "pending"` and `receipt: null`. This confirms **D1 persistence only**, not GitHub delivery. Error states are `error` and `conflict`. Only verified delivery can produce `synced` with `{url,commit,deliveredAt}`. Timestamps are integer UTC epoch milliseconds. Every item has a monotonic `version` for receipt compare-and-swap.
+POST /hub/api/outbox requires authorized session, exact canonical Origin, JSON, X-Hub-Request:1 and same-origin Fetch Metadata when supplied. Input is {idempotencyKey,kind,text,target}. The key is a UUID reused on retry. Kind is message or answer. Text is plain data, 1–8000 characters with prohibited controls rejected; render with textContent. A message omits target or uses null. An answer supplies {sourcePath,taskId,revision}: safe relative Markdown source path, uppercase task ID ending with a hyphen and digits, and exact40-hex source blob SHA. This displayed source identity maps through trusted HUB_ISSUES_TASK_ROUTES to a canonical issue. The client cannot choose an issue number, repository, adapter or executor.
 
-`applyDeliveryResult(db, result)` is a local operator module entry point, deliberately not an HTTP endpoint. It accepts only fixed error codes (`delivery_conflict`, `delivery_unavailable`, `delivery_uncertain`), or a GitHub commit-bound receipt for the approved private repository. Its SQL compares `expectedVersion` and refuses to downgrade a synced item. A failed CAS must be reconciled by reading the current item. The helper validates receipt shape; **the trusted delivery adapter must verify actual GitHub commit readback before calling it**. Shape validation alone is not delivery evidence.
+Before first persistence the Worker checks source/task and revision. A stale source yields409 target_conflict; retain the draft for review. Existing exact retries succeed even after source drift. A unique (owner_id,idempotency_key) constraint handles concurrent requests. Changed content with the same key returns409 idempotency_conflict and never overwrites. Writes and retries share the existing author/IP limit of20 per minute.
 
-## Unresolved operational dependency
+HTTP201 {item} means saved/pending, not GitHub delivery. Exact duplicates return200 {item,duplicate:true}. GitHub delivery is status:synced with receipt {kind:'issue'|'comment',url,issueNumber,commentId,deliveredAt}. The receipt URL matches the approved repository and exact issue/comment identity. GitHub delivery is not agent ACK or result.
 
-The inspected existing `TELEMETRY-PUBLICATION.md` authorizes only one telemetry file through the existing GitHub connector. It expressly excludes direct Hub writes and new application delivery. Consequently this feature does not silently amend that authority or reuse its credential scope for owner messages.
+## Separate server Issues capability
 
-Before production activation, a concrete authorized rollout must cover (1) applying `0002_owner_outbox.sql` to existing `hub-auth`, (2) deploying the reviewed SHA to `kolobovdjp-hub-next`, and (3) a narrowly approved existing-writer transport for reading owner outbox rows and importing verified receipts into that same D1 database, plus allowed GitHub task/inbox paths and agent adapters. No new HTTP machine credential, public queue, or worker GitHub write token is introduced here. The existing 15-minute heartbeat remains unchanged. Prepared code and synthetic tests do not establish scheduled or live delivery.
+Fast delivery requires HUB_ISSUES_ENABLED==='true' and separate server secret HUB_ISSUES_GITHUB_TOKEN. BOARD_GITHUB_TOKEN remains read-only and untouched. The proposed credential needs an explicit grant for Issues read/write and Metadata read on the single private Maverlix777/agent-handoffs repository, without Contents write or other repositories. No secret value is exposed to the frontend or repository.
 
-## Implementation self-check
+After durable enqueue, ctx.waitUntil calls flushIssueDelivery from src/issues-delivery.js. An exact duplicate pending/error submission can trigger safe reconciliation. No new timer is created; existing Claude/Doctor/Snezhanna sessions remain unchanged. GET reports delivery.status:enabled only with the flag and separate token; otherwise not_configured. Saved messages remain visible while delivery is disabled.
 
-- Scope is owner answer/message persistence and receipt CAS, not Claude unattended execution or another product.
-- Reuses Worker owner authentication, Origin check, HMAC rate limiter and D1; no added package.
-- Assumption: approved board sources provide authoritative `sourcePath`, `sourceRevision`, and task ID. An unavailable or changed target fails without overwriting an answer.
-- Boundaries: browser→Worker input validation; Worker→D1 parameterized queries/unique constraints; local trusted adapter→D1 validated result/version CAS. GitHub readback belongs to the adapter and independent end-to-end evidence.
-- Test commands and measured results are recorded in the integration report. Native SQLite tests cover storage, concurrency, reload, duplicate/conflict, rate limiting, privacy, receipt CAS and malformed input. Browser, live GitHub and production rollout are separate checks.
-- End users see pending/error/conflict/synced, never an invented success. Production activation remains unverified until the rollout and transport dependencies are resolved.
+## Lease and uncertain outcomes
 
-### Observed local check
+claimDelivery atomically admits one attempt. beginDeliveryAttempt persists a closed bounded intent before any non-idempotent POST. Stale attempts cannot begin or finish after takeover. Expired attempts with an intent are reconciliation-only: timeout, lease expiry, crash or a negative search never authorizes another POST.
 
-Command: `node --experimental-sqlite --test test/outbox.test.js test/board.test.js test/board-sources.test.js` (Node v24.22.1, Windows, native in-memory SQLite). Output:
+finishDelivery accepts an exact typed receipt after transport readback, checking lease identity, intent kind and comment issue identity. It never downgrades synced items. Preflight failure before intent is retryable. Failure after intent retains uncertainty for reconciliation. Receipt updates increment version. Legacy local applyDeliveryResult cannot race an active Issues lease and is not exposed over HTTP.
 
-```text
-ℹ tests 26
-ℹ suites 0
-ℹ pass 26
-ℹ fail 0
-ℹ cancelled 0
-ℹ skipped 0
-ℹ todo 0
-```
+## Verification and remaining dependency
 
-Eleven are outbox-specific tests; the other fifteen exercise the ingested board and source boundaries. Synthetic plaintext fixtures only. This is not evidence of production migration, authenticated production UI, GitHub delivery, or a scheduled check.
+Observed command: node --experimental-sqlite --test test/outbox.test.js test/issues-delivery.test.js
+
+Result:35 tests,35 pass,0 fail,0 skipped. Covers explicit two-author access, false mappings, stale legacy allowlist denial, immutable attribution, CSRF, isolation, duplicate/conflict, atomic claims, uncertain reconciliation, receipt identity, and actual Worker→native SQLite→mock GitHub transport through ctx.waitUntil. Verifies exactly one POST after durable intent, reload receipt and ACK/result remaining null. All fixtures/identities are synthetic.
+
+This is not live GitHub transport, authenticated production UI, credential provisioning, schema rollout or scheduled-delivery proof. Activation still needs the separately approved scoped secret, verified colleague Hub identity mapping, trusted task→issue routes, and reviewed migration/deployment to kolobovdjp-hub-next. The existing telemetry heartbeat's narrow grant is not reused for these capabilities.
+
+Self-check: handles the requested Hub author/message boundary, reuses existing primitives, preserves author/content, fails closed on absent dependencies, treats text as data, and separates persistence, GitHub delivery, ACK and result. No execution follows automatically from idea labels. Listed tests were run; live delivery and rollout remain unverified.

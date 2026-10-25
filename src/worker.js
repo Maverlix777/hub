@@ -46,14 +46,14 @@ export function boardAuthor(session, env) {
     try { authors = JSON.parse(env.BOARD_AUTHORS_JSON); } catch { return null; }
     if (!Array.isArray(authors) || authors.length > 2 || authors.some((author) => !author || Array.isArray(author)
       || Object.keys(author).length !== 3 || !['hubUserId', 'hubUsername', 'githubLogin'].every((key) => Object.hasOwn(author, key))
-      || typeof author.hubUserId !== 'string' || !/^[A-Za-z0-9_-]{1,128}$/.test(author.hubUserId)
+      || typeof author.hubUserId !== 'string' || !/^[A-Za-z0-9_-]{1,100}$/.test(author.hubUserId)
       || typeof author.hubUsername !== 'string' || !/^[a-z0-9][a-z0-9_.-]{2,31}$/.test(author.hubUsername)
       || typeof author.githubLogin !== 'string' || !/^[A-Za-z0-9](?:[A-Za-z0-9-]{0,37}[A-Za-z0-9])?$/.test(author.githubLogin))) return null;
     for (const field of ['hubUserId', 'hubUsername', 'githubLogin']) {
       if (new Set(authors.map((author) => author[field].toLowerCase())).size !== authors.length) return null;
     }
     const mapped = authors.find((author) => author.hubUserId === session.id || author.hubUsername === session.username.toLowerCase());
-    if (mapped) return mapped.hubUserId === session.id && mapped.hubUsername === session.username.toLowerCase() ? { ...mapped } : null;
+    return mapped && mapped.hubUserId === session.id && mapped.hubUsername === session.username.toLowerCase() ? { ...mapped } : null;
   }
   const owners = typeof env.BOARD_OWNER_USERNAME === 'string'
     ? env.BOARD_OWNER_USERNAME.split(',').map((u) => u.trim().toLowerCase()).filter(Boolean)

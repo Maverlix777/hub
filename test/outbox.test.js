@@ -183,6 +183,7 @@ test('two explicitly mapped authors can submit; username-only impersonation and 
   const second = await post(danya); assert.equal(second.status, 201);
   assert.deepEqual((await second.json()).item.author, authors[1]);
   assert.equal((await post(stranger)).status, 403);
+  assert.equal((await post(stranger, message(), { ...cfg, BOARD_OWNER_USERNAME: 'owner,danya,stranger' })).status, 403);
   assert.equal((await post(danya, message(), {})).status, 403);
   assert.equal((await post(owner, message(), { BOARD_AUTHORS_JSON: JSON.stringify([{ ...authors[0], hubUserId: 'different-id' }]) })).status, 403);
   assert.equal((await post(owner, message(), { BOARD_AUTHORS_JSON: 'invalid' })).status, 403);
@@ -252,4 +253,51 @@ test('Issues receipt requires durable intent and exact issue/comment identity; p
     { status: 'synced', receipt: { ...issueReceipt('comment'), url: 'https://attacker.invalid/issues/7' }, error: null }, 1004));
   assert.deepEqual(await finishDelivery(f.env.HUB_DB, item.id, retry.attempt,
     { status: 'synced', receipt: issueReceipt('comment'), error: null }, 1004), { applied: true });
+});
+
+test('actual Worker schedules Issues flush only after persistence; reload exposes GitHub receipt but not ACK', async (t) => {
+  const f = fixture(); t.after(() => f.sqlite.close()); const owner = await f.session('owner');
+  const savedFetch = globalThis.fetch; t.after(() => { globalThis.fetch = savedFetch; });
+  const api = 'https://api.github.com/repos/Maverlix777/agent-handoffs';
+  let remote = null, posts = 0;
+  globalThis.fetch = async (url, init) => {
+    assert.equal(f.sqlite.prepare('SELECT count(*) n FROM owner_outbox').get().n, 1);
+    assert.ok(String(url).startsWith(api));
+    if (url === api) return Response.json({ full_name: 'Maverlix777/agent-handoffs', private: true, visibility: 'private', has_issues: true });
+    if (url === `${api}/labels/idea`) return Response.json({ name: 'idea' });
+    if (init.method === 'POST') {
+      posts++;
+      assert.ok(f.sqlite.prepare('SELECT delivery_intent_json intent FROM owner_outbox').get().intent);
+      const body = JSON.parse(init.body); assert.deepEqual(body.labels, ['idea']);
+      remote = { number: 7, body: body.body, repository_url: api, html_url: 'https://github.com/Maverlix777/agent-handoffs/issues/7' };
+      return Response.json(remote);
+    }
+    assert.equal(url, `${api}/issues/7`); return Response.json(remote);
+  };
+  const pending = [], ctx = { waitUntil(promise) { pending.push(promise); } };
+  const request = (payload) => new Request(`${origin}/hub/api/outbox`, { method: 'POST', headers: {
+    cookie: owner, origin, 'content-type': 'application/json', 'X-Hub-Request': '1', 'CF-Connecting-IP': '192.0.2.1',
+  }, body: JSON.stringify(payload) });
+  const payload = message(), enabled = { ...f.env, HUB_ISSUES_ENABLED: 'true', HUB_ISSUES_GITHUB_TOKEN: 'synthetic-issues-token-not-real' };
+  const response = await worker.fetch(request(payload), enabled, ctx);
+  assert.equal(response.status, 201); assert.equal((await response.json()).item.status, 'pending');
+  assert.equal(pending.length, 1); await Promise.all(pending);
+  const reloaded = await (await f.request('GET', undefined, owner, {}, undefined, enabled)).json();
+  assert.equal(reloaded.items[0].status, 'synced'); assert.equal(reloaded.items[0].receipt.kind, 'issue');
+  assert.equal(reloaded.items[0].agentAck, null); assert.equal(reloaded.items[0].agentResult, null);
+  assert.equal(reloaded.delivery.status, 'enabled');
+  const duplicate = await worker.fetch(request(payload), enabled, ctx);
+  assert.equal(duplicate.status, 200); assert.equal(pending.length, 1); assert.equal(posts, 1);
+  assert.ok(!JSON.stringify(reloaded).includes(enabled.HUB_ISSUES_GITHUB_TOKEN));
+});
+
+test('missing flag or separate Issues token never starts background delivery', async (t) => {
+  const f = fixture(); t.after(() => f.sqlite.close()); const owner = await f.session('owner');
+  const ctx = { waitUntil() { assert.fail('disabled transport scheduled'); } };
+  for (const config of [{ HUB_ISSUES_ENABLED: 'true' }, { HUB_ISSUES_GITHUB_TOKEN: 'synthetic-issues-token-not-real' }]) {
+    const response = await worker.fetch(new Request(`${origin}/hub/api/outbox`, { method: 'POST', headers: {
+      cookie: owner, origin, 'content-type': 'application/json', 'X-Hub-Request': '1', 'CF-Connecting-IP': '192.0.2.1',
+    }, body: JSON.stringify(message()) }), { ...f.env, ...config }, ctx);
+    assert.equal(response.status, 201); assert.equal((await response.json()).item.status, 'pending');
+  }
 });
