@@ -273,9 +273,9 @@
         : 'Быстрая доставка пока не подтверждена. Сообщение сохранено; статусы проверятся при обновлении доски.'));
       if (item.error) li.append(el('p','error',`Причина: ${item.error}`));
       if (item.status === 'conflict') li.append(el('p','hint','Запись сохранена. Конфликт требует разбора источника; автоматический повтор не выполняется.'));
-      if (item.status === 'error') {
+      if (['pending','error'].includes(item.status)) {
         li.append(el('p','hint','Запись сохранена. Повтор проверит существующую доставку с тем же идентификатором. Если канал отключён, запись останется без подтверждения.'));
-        const retry = el('button','retry-delivery','Повторить доставку'); retry.type = 'button';
+        const retry = el('button','retry-delivery',item.status === 'pending' ? 'Возобновить доставку' : 'Повторить доставку'); retry.type = 'button';
         retry.disabled = authInvalid || deliveryRetries.has(item.id) || receiptChecks.get(item.id) === 'checking' || !item.idempotencyKey;
         const retryStatus = el('p','form-status'); retryStatus.setAttribute('role','status');
         retry.addEventListener('click',async () => {

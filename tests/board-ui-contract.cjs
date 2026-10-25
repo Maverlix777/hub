@@ -161,5 +161,32 @@ const http = require('node:http');
     assert.equal((await retryPage.locator('[data-receipt-id="persisted-error"] .delivery-stages dd').allTextContents())[1],'Доставка подтверждена');
     await retryPage.close();
     console.log('PASS: persisted-error retry button preserves payload/key/id, creates no new UI item, and never offers retry for conflict/synced; synthetic API only.');
+    const resumePage=await browser.newPage(); let enabled=false; let resumePosts=0;
+    const pendingItem={id:'persisted-pending',idempotencyKey:'22222222-2222-4222-8222-222222222222',kind:'message',text:'Saved while delivery disabled',status:'pending',target:null};
+    const resumeReceipt={kind:'issue',url:'https://github.com/Maverlix777/agent-handoffs/issues/124',issueNumber:124,commentId:null,deliveredAt:Date.now()};
+    await resumePage.route('**/hub/api/**',route => {
+      if(route.request().url().endsWith('/board')) return route.fulfill({json:{cards:[],sources:[]}});
+      if(route.request().method()==='POST') {
+        resumePosts++; assert.deepEqual(route.request().postDataJSON(),{idempotencyKey:pendingItem.idempotencyKey,kind:pendingItem.kind,text:pendingItem.text});
+        return route.fulfill({json:{duplicate:true,item:enabled ? {...pendingItem,status:'synced',receipt:resumeReceipt} : pendingItem}});
+      }
+      return route.fulfill({json:{items:[pendingItem],delivery:{status:enabled ? 'enabled' : 'not_configured'}}});
+    });
+    await resumePage.goto(`http://127.0.0.1:${server.address().port}/hub/apps/board.html`);
+    const disabledResumeResponse=resumePage.waitForResponse(response=>response.request().method()==='POST');
+    await resumePage.locator('[data-receipt-id="persisted-pending"] .retry-delivery').click();
+    await disabledResumeResponse; assert.equal(resumePosts,1);
+    await resumePage.waitForFunction(()=>document.querySelector('[data-receipt-id="persisted-pending"] .retry-delivery')?.disabled);
+    assert.equal((await resumePage.locator('.delivery-stages dd').allTextContents())[1],'Не подтверждено');
+    assert.equal(await resumePage.locator('[data-receipt-id="persisted-pending"]').count(),1);
+    // A fresh authenticated page after configuration change (or a crash) must
+    // expose recovery of the existing pending row, not demand a new message.
+    enabled=true; await resumePage.reload();
+    await resumePage.locator('[data-receipt-id="persisted-pending"] .retry-delivery').click();
+    await resumePage.locator('[data-receipt-id="persisted-pending"] a').waitFor();
+    assert.equal(resumePosts,2); assert.equal(await resumePage.locator('[data-receipt-id="persisted-pending"]').count(),1);
+    assert.equal(await resumePage.locator('.retry-delivery').count(),0);
+    await resumePage.close();
+    console.log('PASS: pending disabled-channel item survives reload and resumes after enable with identical key/payload/id, no fresh message; synthetic API only.');
   } finally { if (browser) await browser.close(); await new Promise(resolve=>server.close(resolve)); }
 })().catch(error=>{console.error(error);process.exitCode=1;});
