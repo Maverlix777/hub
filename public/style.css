@@ -103,8 +103,8 @@ input:focus-visible, select:focus-visible, textarea:focus-visible, summary:focus
   .grid { grid-template-columns:minmax(0,1fr); }
   .tile { min-height:190px; padding:20px; }
   .hub-header { padding:12px 14px; gap:10px; }
-  .hub-nav { display:flex; justify-content:space-between; gap:0; }
-  .hub-nav a { font-size:12px; padding:9px 6px; }
+  .hub-nav { display:grid; grid-template-columns:repeat(2,minmax(0,1fr)); gap:4px; min-width:0; }
+  .hub-nav a { font-size:14px; padding:9px 10px; min-width:0; white-space:normal; }
   .hub-header .account { max-width:70%; }
   .catalog-page { padding:24px 14px 44px; }
 }
