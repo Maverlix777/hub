@@ -2,6 +2,7 @@ import { Buffer } from 'node:buffer';
 import { loadBoardSources } from './board-sources.js';
 import { readTelemetry } from './telemetry.js';
 import { validatePayload, existingSubmission, enqueue, listSubmissions } from './outbox.js';
+import { readIssueResponses } from './issue-responses.js';
 import {
   generateAuthenticationOptions,
   generateRegistrationOptions,
@@ -427,6 +428,7 @@ async function api(request, env, path, session, webauthn, now, canonicalOrigin, 
     try {
       if (request.method === 'GET') {
         const page = await listSubmissions(db, session.id, new URL(request.url).searchParams.get('before'));
+        page.items = await readIssueResponses(env, page.items);
         return json({ ...page, delivery: { status: issuesDeliveryEnabled(env) ? 'enabled' : 'not_configured' } });
       }
       if (request.method !== 'POST') return json({ error: 'method_not_allowed' }, 405, { allow: 'GET, POST' });

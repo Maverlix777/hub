@@ -80,7 +80,7 @@ test('API persists pending plaintext, reload returns same receipt and no secrets
   const { item } = await response.json();
   assert.equal(item.status, 'pending'); assert.equal(item.text, payload.text); assert.equal(item.receipt, null);
   const loaded = await (await f.request('GET', undefined, owner)).json();
-  assert.deepEqual(loaded.items, [item]); assert.equal(loaded.delivery.status, 'not_configured');
+  assert.deepEqual(loaded.items, [{ ...item, responseStatus: { status: 'not_configured' } }]); assert.equal(loaded.delivery.status, 'not_configured');
   assert.ok(!JSON.stringify(loaded).includes('synthetic-key')); assert.ok(!('owner_id' in item));
 });
 

@@ -252,6 +252,26 @@
     }
     receiptChecks.set(id,'unconfirmed'); renderOutbox();
   }
+  function responseEvidence(item, value) {
+    if (item.responseStatus?.status !== 'available' || item.status !== 'synced' || !issueReceipt(item.receipt)
+      || !value || typeof value.text !== 'string' || !value.text.trim() || value.text.length > 8000
+      || typeof value.author !== 'string' || !/^[a-z0-9](?:[a-z0-9-]{0,37}[a-z0-9])?(?:\[bot\])?$/i.test(value.author)
+      || !Number.isFinite(Date.parse(value.createdAt)) || !Number.isFinite(Date.parse(value.updatedAt))) return null;
+    try {
+      const url = new URL(value.url);
+      if (url.origin !== 'https://github.com' || url.username || url.password || url.search
+        || url.pathname !== `/Maverlix777/agent-handoffs/issues/${item.receipt.issueNumber}`
+        || !/^#issuecomment-[1-9][0-9]*$/.test(url.hash)) return null;
+      return value;
+    } catch { return null; }
+  }
+  function responseCard(title, evidence, kind) {
+    const section = el('section',`response-card response-${kind}`);
+    section.append(el('h4','',title),el('p','response-text',evidence.text));
+    section.append(el('p','receipt',`GitHub @${evidence.author} · ${date(evidence.createdAt)}${evidence.updatedAt !== evidence.createdAt ? ` · изменено ${date(evidence.updatedAt)}` : ''}`));
+    section.append(safeLink(evidence.url,'Открыть комментарий ↗'));
+    return section;
+  }
   function renderOutbox() {
     const list = $('outbox-list'); list.replaceChildren();
     for (const item of items) {
@@ -261,16 +281,27 @@
       li.append(el('p','author',`Автор: ${author?.hubUsername || 'не сохранён в прежней записи'}${author?.githubLogin ? ` · GitHub @${author.githubLogin}` : ''}`),el('p','message-text',item.text));
       const receipt = issueReceipt(item.receipt);
       const delivered = item.status === 'synced' && Boolean(receipt);
+      const ack = responseEvidence(item,item.agentAck);
+      const result = responseEvidence(item,item.agentResult);
       const stages = el('dl','delivery-stages');
       metric(stages,'SAVED · сохранение','Сохранено на сервере');
       metric(stages,'DELIVERED · GitHub Issues',delivered ? 'Доставка подтверждена' : item.status === 'error' ? 'Ошибка доставки' : item.status === 'conflict' ? 'Конфликт — нужен разбор' : 'Не подтверждено');
-      // The authenticated API currently returns null for both fields. A delivery
-      // receipt, telemetry claim or unrecognized object cannot stand in for ACK.
-      metric(stages,'ACK · ответ исполнителя','Не подтверждён');
-      metric(stages,'RESULT · результат','Не подтверждён');
+      metric(stages,'ACK · принято к обработке',ack ? 'Есть подтверждение в GitHub' : 'Не подтверждён');
+      metric(stages,'RESULT · ответ секретаря',result ? 'Ответ опубликован в GitHub' : 'Не подтверждён');
       li.append(stages);
       li.append(el('p','receipt',`${date(item.createdAt)} · Квитанция ${item.id}`));
       if (delivered) li.append(receipt);
+      if (ack) li.append(responseCard('Принято к обработке',ack,'ack'));
+      if (result) {
+        li.append(responseCard('Ответ секретаря',result,'result'));
+        li.append(el('p','hint','Ответ об обработке сообщения не подтверждает выполнение внешней задачи.'));
+      }
+      const responseStates = { not_configured:'Чтение ответов секретаря пока не подключено.',
+        not_inspected:'Ответы для этой записи ещё не проверены: достигнут лимит чтения.',
+        incomplete:'Комментарии прочитаны не полностью. Ответ пока не подтверждён.',
+        conflict:'Найдено несколько ответов с одинаковой отметкой. Нужен разбор.',
+        error:'Не удалось проверить ответы в GitHub. ACK и RESULT не подтверждены.' };
+      if (responseStates[item.responseStatus?.status]) li.append(el('p','response-status hint',responseStates[item.responseStatus.status]));
       if (!delivered && item.status === 'pending' && receiptChecks.has(item.id)) li.append(el('p','hint',receiptChecks.get(item.id) === 'checking'
         ? 'Проверяем квитанцию доставки… Сообщение уже сохранено.'
         : 'Быстрая доставка пока не подтверждена. Сообщение сохранено; статусы проверятся при обновлении доски.'));
@@ -326,7 +357,7 @@
       const data = await api('outbox'); requireActiveSession(); items = Array.isArray(data.items) ? data.items : []; nextCursor = data.nextCursor || null; outboxAvailable = true;
       $('delivery-status').textContent = data.delivery?.status === 'not_configured' ? 'Сохранение доступно. Канал GitHub Issues ещё не подключён; быстрая доставка пока не подтверждена.' : 'Сохранение, доставка в GitHub Issues, ответ исполнителя и результат — разные этапы. Проверяй квитанцию каждого сообщения.';
       renderOutbox();
-    } catch (error) { if (authInvalid) return; outboxAvailable = false; $('delivery-status').textContent = 'Не удалось прочитать очередь. Доставку подтвердить нельзя.'; $('delivery-status').className = 'status error'; if (!items.length) renderOutbox(); }
+    } catch (error) { if (authInvalid) return; outboxAvailable = false; $('delivery-status').textContent = 'Не удалось прочитать очередь. Доставку подтвердить нельзя.'; $('delivery-status').className = 'status error'; items = items.map(item => ({...item,agentAck:null,agentResult:null,responseStatus:{status:'error'}})); renderOutbox(); }
   }
   function renderTelemetry(data) {
     const root = $('telemetry'); root.replaceChildren(el('h2','','Снежанна'));

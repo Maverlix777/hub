@@ -46,6 +46,9 @@ form { display:grid; gap:8px; } form label { font-size:14px; font-weight:600; } 
 .outbox-entry .message-text { white-space:pre-wrap; }
 .outbox-entry .receipt { color:var(--muted); font-size:12px; }
 .outbox-entry .author { font-size:13px; color:var(--muted); }
+.response-card { display:grid; gap:8px; padding:14px; border:1px solid var(--line); border-radius:10px; background:#f7f9fd; }
+.response-card h4 { margin:0; font-size:14px; }
+.response-text { white-space:pre-wrap; overflow-wrap:anywhere; line-height:1.6; }
 .delivery-stages { display:grid; grid-template-columns:minmax(160px,230px) minmax(0,1fr); gap:6px 12px; padding:12px; margin:0; border:1px solid var(--line); border-radius:10px; font-size:12px; }
 .delivery-stages dt { color:var(--muted); } .delivery-stages dd { margin:0; }
 @media(max-width:650px) { .delivery-stages { grid-template-columns:1fr; gap:3px; } .delivery-stages dd { margin-bottom:6px; } }
