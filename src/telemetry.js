@@ -84,11 +84,11 @@ export async function readTelemetry(env, fetchImpl = fetch, now = Date.now()) {
   let reader; let response;
   try {
     response = await fetchImpl(`https://api.github.com/repos/${repo}/contents/${path.split('/').map(encodeURIComponent).join('/')}`, {
-      method: 'GET', redirect: 'error', signal: controller.signal,
+      method: 'GET', redirect: 'manual', signal: controller.signal,
       headers: { accept: 'application/vnd.github.raw+json', authorization: `Bearer ${env.BOARD_GITHUB_TOKEN}`,
         'user-agent': 'hub-board', 'x-github-api-version': '2022-11-28' },
     });
-    if (response.redirected) return unknown('redirect_rejected');
+    if (response.redirected || (response.status >= 300 && response.status < 400)) return unknown('redirect_rejected');
     if (!response.ok) return unknown(httpFailure(response.status));
     if (Number(response.headers.get('content-length')) > MAX_BYTES) return unknown('oversized');
     if (!response.body) return unknown('empty_response');

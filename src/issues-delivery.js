@@ -87,11 +87,13 @@ function client(env, fetchImpl, clock, deadline) {
       return result;
     };
     try {
-      const response = await bounded(Promise.resolve().then(() => fetchImpl(`${API}${path}`, { method: body ? 'POST' : 'GET', redirect: 'error',
+      const response = await bounded(Promise.resolve().then(() => fetchImpl(`${API}${path}`, { method: body ? 'POST' : 'GET', redirect: 'manual',
         signal: controller.signal, headers: { authorization: `Bearer ${env.HUB_ISSUES_GITHUB_TOKEN}`,
           accept: 'application/vnd.github+json', 'x-github-api-version': '2022-11-28', 'user-agent': 'hub-issues-outbox',
           ...(body ? { 'content-type': 'application/json' } : {}) }, ...(body ? { body: JSON.stringify(body) } : {}) })));
       if (!response || !Number.isInteger(response.status)) throw unavailable('malformed');
+      // Workerd supports manual redirects. Never forward a bearer token to Location.
+      if (response.redirected || (response.status >= 300 && response.status < 400)) throw httpFailure(response.status);
       if (!response.ok) throw httpFailure(response.status);
       if (!response.body || typeof response.body.getReader !== 'function') throw unavailable('malformed');
       reader = response.body.getReader();

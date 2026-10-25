@@ -26,7 +26,7 @@ function harness(item = message, overrides = {}) {
   };
   const fetchImpl = async (url, init) => {
     state.calls.push({ url, init });
-    assert.equal(init.redirect, 'error');
+    assert.equal(init.redirect, 'manual');
     assert.equal(init.headers.authorization, 'Bearer synthetic-test-token');
     if (state.handler) { const handled = await state.handler(url, init, state); if (handled) return handled; }
     if (url === API) return json({ full_name: REPO, private: true, visibility: 'private', has_issues: true });
@@ -66,6 +66,51 @@ test('feature disabled or missing separate token makes no claim and no network r
   for (const config of [{ ...env, HUB_ISSUES_ENABLED: 'false' }, { ...env, HUB_ISSUES_GITHUB_TOKEN: undefined }]) {
     const h = harness(); assert.equal((await h.run(config)).status, 'not_configured'); assert.equal(h.state.calls.length, 0); assert.equal(h.state.held, false);
   }
+});
+
+test('Issues preflight uses manual redirects and never reads or forwards credentials to a 3xx Location', async () => {
+  for (const status of [300,301,302,303,304,305,307,308,399]) {
+    const h = harness(message, { handler(url) {
+      if (url === API) return { status, ok: true, redirected: false,
+        headers: new Headers({ location: 'https://elsewhere.invalid/private-location' }),
+        get body() { assert.fail('redirect body must not be read'); } };
+    } });
+    assert.deepEqual(await h.run(), { status: 'error', error: 'delivery_unavailable_github_other_http' });
+    assert.equal(h.state.calls.length, 1); assert.equal(h.state.calls[0].url, API);
+    assert.equal(h.state.calls[0].init.redirect, 'manual');
+    assert.equal(h.state.posts, 0); assert.equal(h.state.intent, null);
+  }
+  const h = harness(message, { handler() { return { status: 200, ok: true, redirected: true }; } });
+  assert.equal((await h.run()).error, 'delivery_unavailable_github_other_http');
+});
+
+test('redirect after intent remains uncertain and retry reconciles without reposting or following Location', async () => {
+  const h = harness(message, { handler(_url, init, state) {
+    if (init.method === 'POST') {
+      state.posts++;
+      return { status: 307, ok: true, redirected: false,
+        headers: new Headers({ location: 'https://elsewhere.invalid/write' }),
+        get body() { assert.fail('redirect body must not be read'); } };
+    }
+  } });
+  assert.equal((await h.run()).error, 'delivery_uncertain'); assert.ok(h.state.intent);
+  assert.equal(h.state.uncertain, true); assert.equal(h.state.posts, 1);
+  const previousCalls = h.state.calls.length;
+  assert.equal((await h.run()).error, 'delivery_uncertain'); assert.equal(h.state.posts, 1);
+  assert.ok(h.state.calls.slice(previousCalls).every(call => call.init.method === 'GET'));
+  assert.ok(h.state.calls.every(call => call.url.startsWith(API) && call.init.redirect === 'manual'));
+});
+
+test('readback redirect retains uncertain intent and later exact readback can recover without another POST', async () => {
+  const h = harness(message, { handler(url, _init, state) {
+    if (url === `${API}/issues/43`) {
+      state.handler = null;
+      return new Response(null, { status: 302, headers: { location: 'https://elsewhere.invalid/readback' } });
+    }
+  } });
+  assert.equal((await h.run()).error, 'delivery_uncertain'); assert.ok(h.state.intent);
+  assert.equal((await h.run()).status, 'synced'); assert.equal(h.state.posts, 1);
+  assert.ok(h.state.calls.every(call => call.url.startsWith(API) && call.init.redirect === 'manual'));
 });
 
 test('concurrent fast flush shares claim and sends exactly one POST', async () => {

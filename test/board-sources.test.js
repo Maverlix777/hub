@@ -32,7 +32,7 @@ test('empty, unsupported and remote error stay distinct with partial successful 
 test('GitHub JSON blobs are validated and secrets are never returned', async()=>{
   let calls=0;
   const result=await loadBoardSources(env, async(url,init)=>{
-    calls++; assert.match(url,/^https:\/\/api.github.com\/repos\//); assert.equal(init.redirect,'error');
+    calls++; assert.match(url,/^https:\/\/api.github.com\/repos\//); assert.equal(init.redirect,'manual');
     const text=url.endsWith('ideas.md')?ideas:table;
     return Response.json({type:'file',encoding:'base64',content:Buffer.from(text).toString('base64'),sha:blob(text)});
   });

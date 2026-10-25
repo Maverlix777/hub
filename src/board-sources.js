@@ -49,9 +49,9 @@ export async function loadBoardSources(env, fetchImpl = fetch) {
     try {
       response = await fetchImpl(`https://api.github.com/repos/${repo}/contents/${source.path.split('/').map(encodeURIComponent).join('/')}`, {
         headers: {accept: 'application/vnd.github+json', authorization: `Bearer ${env.BOARD_GITHUB_TOKEN}`, 'user-agent': 'hub-board', 'x-github-api-version': '2022-11-28'},
-        redirect: 'error', signal,
+        redirect: 'manual', signal,
       });
-      if (response.redirected) return {...base, error: 'redirect_rejected'};
+      if (response.redirected || (response.status >= 300 && response.status < 400)) return {...base, error: 'redirect_rejected'};
       if (!response.ok) return {...base, error: httpFailure(response.status)};
       const raw = await boundedText(response); let text = raw; let revision;
       if (/json/i.test(response.headers.get('content-type') || '')) {

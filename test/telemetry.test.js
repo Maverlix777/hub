@@ -66,7 +66,7 @@ test('reader is opt-in, pinned to board repo and rejects unsafe paths without fe
   const result = await readTelemetry(env, async (url, init) => {
     calls++;
     assert.equal(url, 'https://api.github.com/repos/example/private-board/contents/telemetry/current.json');
-    assert.equal(init.redirect, 'error'); assert.equal(init.method, 'GET');
+    assert.equal(init.redirect, 'manual'); assert.equal(init.method, 'GET');
     assert.ok(init.signal); assert.equal(init.headers.authorization, 'Bearer synthetic-token');
     return Response.json(sample());
   }, now);

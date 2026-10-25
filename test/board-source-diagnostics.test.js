@@ -8,6 +8,21 @@ const consumers = [
   ['telemetry', async fetcher => (await readTelemetry(env, fetcher)).reason],
 ];
 for (const [name, consume] of consumers) {
+  test(`${name}: manual redirect mode rejects every 3xx before reading or following Location`, async () => {
+    for (const status of [300,301,302,303,304,305,307,308,399]) {
+      const calls=[];let reads=0;
+      const code=await consume(async(url,init)=>{
+        calls.push(url);assert.equal(init.redirect,'manual');
+        assert.match(url,/^https:\/\/api.github.com\/repos\//);
+        assert.equal(init.headers.authorization,'Bearer PRIVATE_TOKEN_VALUE');
+        return {status,ok:true,redirected:false,headers:new Headers({location:'https://elsewhere.invalid/private-location'}),
+          body:{getReader(){reads++;throw Error('PRIVATE_BODY');},cancel:async()=>{}}};
+      });
+      assert.equal(code,'redirect_rejected');assert.equal(calls.length,1);assert.equal(reads,0);
+      assert.ok(!code.includes('PRIVATE_TOKEN_VALUE'));assert.ok(!code.includes('private-location'));
+    }
+    assert.equal(await consume(async()=>({status:200,ok:true,redirected:true,body:null})),'redirect_rejected');
+  });
   test(`${name}: finite HTTP taxonomy never reads response bodies`, async () => {
     for (const [status, expected] of [[401,'http_401'],[403,'http_403'],[404,'http_404'],[429,'http_429'],[500,'http_5xx'],[503,'http_5xx'],[418,'http_other']]) {
       let reads = 0;
