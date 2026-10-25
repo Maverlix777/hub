@@ -1,6 +1,6 @@
 # Independent Hub acceptance evidence
 
-Date: 2026-10-25. Reviewer: the dedicated QA subagent, separate from UI, ingestion, outbox and adapter authors. Product code tested at `c79ed9d` plus the QA harness changes in this commit. Root performs its own integration checks. No production deployment or migration was performed by this QA run.
+Date: 2026-10-25. Reviewer: the dedicated QA subagent, separate from UI, ingestion, outbox and adapter authors. Product code tested through `3dfdfbf` (including the persisted outbox/route contract correction), with the harness committed as `281a2ea`. Root independently reran that browser harness at `281a2ea`: 14/14 checkpoints passed, and its refreshed synthetic screenshots are included in the following evidence commit. No production deployment or migration was performed by these QA runs.
 
 ## Environment and proof boundary
 
@@ -29,14 +29,14 @@ PASS authorization loss clears board/outbox/telemetry and rejects delayed privat
 RESULT 14 passed; synthetic GitHub only; browser board requests 9
 
 node tests/check-subpath.cjs
-Итог: 63 прошло, 0 упало
+[English translation of the Russian result] Total: 63 passed, 0 failed.
 
 node --experimental-sqlite --test test/subpath-server.test.js
 tests 1; pass 1; fail 0
 
 npm run check
-5 из 5 страниц и 5 скриптов ок
-ok manifest: 31 запис.
+[English translation of the Russian result] 5 of 5 pages and 5 scripts OK.
+[English translation of the Russian result] Manifest OK: 31 entries.
 public Pages artifact OK: 27 files, no docs/tests/tools
 Pages migration redirects OK
 ```
