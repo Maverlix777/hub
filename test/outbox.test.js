@@ -41,6 +41,17 @@ test('payload rejects unknown keys, invalid identity, controls, paths and overlo
   assert.ok(validatePayload(message({ kind: 'answer', target: { sourcePath: 'proposals/project/BOARD.md', taskId: 'X-1', revision: 'a'.repeat(40) } })));
 });
 
+test('persistence grammar matches delivery routes: messages cannot carry targets', () => {
+  const target = { sourcePath: 'proposals/project/BOARD.md', taskId: 'X-1', revision: 'a'.repeat(40) };
+  assert.equal(validatePayload(message({ target })), null);
+  assert.ok(validatePayload(message({ target: null })));
+  assert.ok(validatePayload(message()));
+  for (const invalid of [{ ...target, revision: 'a'.repeat(64) }, { ...target, taskId: 'lower-1' },
+    { ...target, sourcePath: '_private/BOARD.md' }, { ...target, sourcePath: 'path//BOARD.md' }]) {
+    assert.equal(validatePayload(message({ kind: 'answer', target: invalid })), null);
+  }
+});
+
 test('API protects anonymous, non-owner, CSRF, methods, content type and invalid JSON', async (t) => {
   const f = fixture(); t.after(() => f.sqlite.close());
   const owner = await f.session('owner'), guest = await f.session('guest');

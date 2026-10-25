@@ -1,7 +1,8 @@
 // Durable owner messages. No GitHub token, network call, or dispatch authority here.
 const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
-const REVISION = /^[0-9a-f]{40}(?:[0-9a-f]{24})?$/;
-const PATH = /^(?:[a-zA-Z0-9_.-]+\/)*[a-zA-Z0-9_.-]+\.md$/;
+// Keep target grammar aligned with the existing-writer delivery adapter.
+const REVISION = /^[0-9a-f]{40}$/;
+const PATH = /^[a-zA-Z0-9][a-zA-Z0-9_./-]*\.md$/;
 const ERROR_CODES = new Set(['delivery_conflict', 'delivery_unavailable', 'delivery_uncertain']);
 
 function exactKeys(value, keys) {
@@ -16,12 +17,13 @@ export function validatePayload(value) {
     || typeof value.text !== 'string' || !value.text.trim() || value.text.length > 8000
     || /[\u0000-\u0008\u000b\u000c\u000e-\u001f\u007f]/.test(value.text)) return null;
   let target = null;
+  if (value.kind === 'message' && value.target != null) return null;
   if (value.target !== undefined && value.target !== null) {
     const t = value.target;
     if (!exactKeys(t, ['sourcePath', 'taskId', 'revision'])
       || typeof t.sourcePath !== 'string' || t.sourcePath.length > 300 || !PATH.test(t.sourcePath)
-      || t.sourcePath.split('/').some((part) => part === '.' || part === '..')
-      || typeof t.taskId !== 'string' || !/^[\p{L}\p{N}][\p{L}\p{N}_.:-]{0,99}$/u.test(t.taskId)
+      || t.sourcePath.split('/').some((part) => part === '.' || part === '..' || !part)
+      || typeof t.taskId !== 'string' || t.taskId.length > 100 || !/^[A-Z][A-Z0-9_]*-[0-9]+$/.test(t.taskId)
       || typeof t.revision !== 'string' || !REVISION.test(t.revision)) return null;
     target = { sourcePath: t.sourcePath, taskId: t.taskId, revision: t.revision };
   }
