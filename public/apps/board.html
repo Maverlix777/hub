@@ -32,6 +32,10 @@
     <div class="board-tools"><a class="btn" href="#inbox">Написать команде ↓</a><button id="refresh" type="button">Обновить</button><p id="status" class="status" role="status" aria-live="polite">Загружаем доску…</p></div>
   </section>
   <p id="session-status" class="session-status" role="status" aria-live="polite" hidden></p>
+  <section class="push-settings" aria-label="Уведомления">
+    <button id="push-toggle" type="button" disabled>Включить уведомления</button>
+    <p id="push-status" role="status" aria-live="polite">Проверяем уведомления…</p>
+  </section>
   <section id="questions" class="panel questions" aria-labelledby="questions-title">
     <div class="section-heading"><h2 id="questions-title">Нужен твой ответ</h2><span id="question-count" class="count">…</span></div>
     <p class="hint">Ответ сохраняется в очереди. Доставка подтверждается отдельной квитанцией.</p>
@@ -73,5 +77,6 @@
 <dialog id="task-dialog" aria-labelledby="detail-title"><div class="dialog-toolbar"><span id="detail-id" class="eyebrow"></span><button id="close-detail" type="button" aria-label="Закрыть карточку">Закрыть ×</button></div><div id="detail-content"></div></dialog>
 <script src="/hub/apps/board.js"></script>
 <script src="/hub/hub.js"></script>
+<script src="/hub/push.js"></script>
 </body>
 </html>
