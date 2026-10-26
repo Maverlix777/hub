@@ -38,6 +38,12 @@ function createServer() { return http.createServer((req, res) => {
     if (!sessionOk) { res.writeHead(401, { 'content-type': 'application/json' }); res.end('{"error":"unauthorized"}'); return; }
     res.writeHead(200, { 'content-type': 'application/json' }); res.end('{"username":"test","entitlement":"free","apps":["board","chat","downloads"],"locked":[]}'); return;
   }
+  // Synthetic public configuration only. No push subscription is created by traversal.
+  if (req.method === 'GET' && url === PREFIX + 'api/push/config') {
+    res.writeHead(200, { 'content-type': 'application/json', 'cache-control': 'no-store' });
+    res.end(JSON.stringify({ publicKey: Buffer.concat([Buffer.from([4]), Buffer.alloc(64, 1)]).toString('base64url') }));
+    return;
+  }
   if (req.method === 'POST' && url === PREFIX + 'api/logout') { res.writeHead(204); res.end(); return; }
   // Synthetic owner response for the board page visited by the traversal below.
   // This static fixture is not an authentication test; Worker tests cover that gate.
@@ -87,6 +93,9 @@ async function main() {
 
     await p.goto(BASE + PREFIX + 'index.html');
     await p.waitForSelector('a.tile');
+    await p.waitForFunction(() => document.getElementById('push-status').textContent === 'Получай уведомления, когда агенты отправляют изменения.');
+    check(`[${w}] push fixture enables explicit subscription action`,
+      await p.$eval('#push-toggle', button => !button.disabled && button.textContent === 'Включить уведомления'));
     const hrefs = await p.$$eval('a.tile', (n) => n.map((a) => a.getAttribute('href')));
     check(`[${w}] плитки = APPS (${apps.length})`, hrefs.length === apps.length && apps.every((a, i) => hrefs[i] === a.href), hrefs.join(' | '));
 
