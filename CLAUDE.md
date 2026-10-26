@@ -45,7 +45,7 @@ e2e подменяет api.anthropic.com через `--host-resolver-rules` на
 POST https://api.anthropic.com/v1/messages; заголовки x-api-key, anthropic-version: 2023-06-01,
 content-type: application/json, anthropic-dangerous-direct-browser-access: true (последний в справке
 не нашёл, взят из ТЗ владельца). stream: true, SSE: из `content_block_delta` берём только `text_delta`,
-`event: error` показываем как есть. Ключи localStorage: `hub.chat.key|model|system|history`.
+`event: error` показываем как есть. API-ключ: `hub.chat.key` (`TAB_KEY`) в sessionStorage этой вкладки; если хранилище недоступно — только в памяти страницы. Настройки и история в localStorage: `hub.chat.model|system|history`.
 
 ## Загрузки
 Каждая собранная сборка (APK, AAB, IPA, MP4, ZIP и т.п.) регистрируется в реестре `apps/downloads.html`: один объект на файл.
@@ -56,11 +56,11 @@ content-type: application/json, anthropic-dangerous-direct-browser-access: true 
 - Всё на одном origin: любой скрипт на нём видит ключ. Никаких CDN и сторонних скриптов.
 - CSP meta на каждой странице, ровно: `default-src 'self'; connect-src https://api.anthropic.com; style-src 'self' 'unsafe-inline'`.
   Новое приложение в `apps/` обязано пройти `tests/check-csp.cjs`.
-- Ключ: только localStorage браузера. Не в коде, URL, логах, консоли, тексте ошибок, git.
+- Ключ: sessionStorage этой вкладки; если хранилище недоступно — только память страницы. Не в коде, URL, логах, консоли, тексте ошибок, git.
 - Ответ модели — только textContent (или безопасный markdown без innerHTML с непроверенным текстом).
 - Пуш, публикация, хостинг — только после «да» владельца.
 - Хостинг: приложение — Worker на `https://kolobovdjp.org/hub/` (приватная сборка, см. «Актуально»); GitHub Pages из artifact workflow отдаёт только редиректы и статические страницы.
   Artifact allowlist содержит только приложение; координационные документы и тесты в Pages не включать. Сам GitHub repository публичный, поэтому не хранить секреты или private credentials в любом коммите.
-- `maverlix777.github.io` — один origin на все project-сайты аккаунта: localStorage (ключ) виден их скриптам.
+- `maverlix777.github.io` — один origin на все project-сайты аккаунта: sessionStorage (ключ) доступен скриптам того же origin в этой вкладке.
   Не включать Pages в других repo аккаунта без своего домена (у mukha-v-storonu CNAME есть, он отдельный).
 - Ключ вводить внутри значка «Домой» и проверить на телефоне: хранилище значка и вкладки Safari, вероятно, раздельны (не проверено).
