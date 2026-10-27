@@ -31,7 +31,7 @@ test('redirect to unapproved host and HTTP failure cannot report downloaded',asy
 });
 test('offline audit inventories every catalog and app without implying live verification',async()=>{
   const report=await audit(fileURLToPath(new URL('..',import.meta.url)));
-  assert.equal(report.counts.catalog,36);assert.equal(report.counts.apps,5);
+  assert.equal(report.counts.catalog,37);assert.equal(report.counts.apps,5);
   assert.equal(report.downloads.filter(x=>x.status==='declared_unavailable').length,1);
   assert.ok(report.downloads.every(x=>['declared_unavailable','not_checked'].includes(x.status)));assert.equal(report.readOnly,true);
 });

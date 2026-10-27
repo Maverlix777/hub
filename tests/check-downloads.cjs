@@ -23,11 +23,19 @@ items.forEach((it, i) => {
   if (it.available !== false && !/^https:\/\//.test(it.url || '')) errors.push(`#${i}: url не https`);
   if (it.available === false && it.url) errors.push(`#${i}: недоступная запись не должна иметь ссылку`);
 });
-const lf = items.find((it) => it.project === 'Location Fusion Test' && it.version === '3.1.14 (9)');
-if (!lf || lf.url !== 'https://kolobovdjp.org/locationfusion/install/LocationFusion-Test-build9-UI.ipa' ||
-    lf.date !== '2026-10-18' || !/[А-Яа-я]/.test(lf.note || '') ||
-    lf.size !== 22141414 || lf.sha256 !== 'bc799908eb6f9f6e09c6811a7ddde94d51c9eb80b2ecb4c359067881933dd0e5') {
-  errors.push('Location Fusion build 9 catalog entry does not match the verified artifact');
+const lf = items.find((it) => it.project === 'Location Fusion' && it.platform === 'ios');
+if (!lf || lf.kind !== 'ipa' || lf.version !== '3.1.14 (build 1, main 9037cb0, без встроенного VPN)' ||
+    lf.file !== 'LocationFusion-ios-3.1.14-build1-unsigned.ipa' ||
+    lf.url !== 'https://github.com/Maverlix777/hub/releases/download/lf-ios-3.1.14-build1/LocationFusion-ios-3.1.14-build1-unsigned.ipa' ||
+    lf.date !== '2026-10-27' || !/SideStore\/AltStore/.test(lf.note || '') ||
+    lf.size !== 22063261 || lf.sha256 !== 'e2d69a97ee98c44248b2957460acb81e9b2e577ced3b617ee67e0b68d4f93f6b') {
+  errors.push('Location Fusion build 1 catalog entry does not match the verified artifact');
+}
+const lfAndroid = items.find((it) => it.file === 'LocationFusion-android-release.aab');
+if (!lfAndroid || lfAndroid.project !== 'Location Fusion' || lfAndroid.platform !== 'android' ||
+    lfAndroid.url !== 'https://github.com/Maverlix777/hub/releases/download/games-2026-10-22/LocationFusion-android-release.aab' ||
+    lfAndroid.size !== 2917884 || lfAndroid.sha256 !== 'f70e818d35d9c95be89754a07aa2924127ba586b0e785368c0c009b976ec8013') {
+  errors.push('Location Fusion Android AAB must match games-2026-10-22 metadata');
 }
 const kb = items.find((it) => it.project === 'Krenkballs' && it.version === '75 (7340a86)');
 if (!kb || kb.available === false ||
