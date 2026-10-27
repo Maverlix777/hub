@@ -172,7 +172,7 @@ const web = http.createServer((req, res) => {
       const iosLinks = nebulaIOS < 0 ? [] : await page.locator('.dl').nth(nebulaIOS).locator('a.btn').evaluateAll((links) => links.map((link) => link.href));
       check(`${width}px: доступная Nebula Pop iOS показывает точную ссылку из реестра`,
         nebulaIOS >= 0 && reg[nebulaIOS].available !== false && iosLinks.length === 1 && iosLinks[0] === reg[nebulaIOS].url, iosLinks.join(' | '));
-      const lfDownload = await page.locator('.dl').filter({ hasText: 'LocationFusion-ios-3.1.14-build1-unsigned.ipa' }).locator('a.btn').evaluate((e) => e.href + '|' + e.rel);
+      const lfDownload = await page.locator('.dl').filter({ hasText: 'Location Fusion 3.1.14 (build 1, main 9037cb0, без встроенного VPN)' }).locator('a.btn').evaluate((e) => e.href + '|' + e.rel);
       check(`${width}px: build 1 ведёт на публичный IPA с noopener`,
         lfDownload === 'https://github.com/Maverlix777/hub/releases/download/lf-ios-3.1.14-build1/LocationFusion-ios-3.1.14-build1-unsigned.ipa|noopener noreferrer', lfDownload);
       const kbDownload = await page.locator('.dl').filter({ hasText: 'Krenkballs 75 (7340a86)' }).locator('a.btn').evaluate((e) => e.href + '|' + e.rel);
