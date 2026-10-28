@@ -84,7 +84,18 @@ jobs:
         run: |
           npx wrangler whoami
           if [ -z "$HUB_D1_DATABASE_ID" ]; then
-            HUB_D1_DATABASE_ID="$(npx wrangler d1 list --json | python3 -c 'import json,sys; dbs=json.load(sys.stdin); print(next((d.get("uuid") or d.get("database_id") or "" for d in dbs if d.get("name")=="hub-auth"), ""))')"
+            HUB_D1_DATABASE_ID="$(python3 - <<'PY'
+          import json, os, urllib.request
+          url = 'https://api.cloudflare.com/client/v4/accounts/' + os.environ['CLOUDFLARE_ACCOUNT_ID'] + '/workers/scripts/kolobovdjp-hub-next/settings'
+          req = urllib.request.Request(url, headers={'Authorization': 'Bearer ' + os.environ['CLOUDFLARE_API_TOKEN']})
+          with urllib.request.urlopen(req) as response:
+              payload = json.load(response)
+          if not payload.get('success'):
+              raise SystemExit('Cannot read existing Worker settings')
+          db = next(b for b in payload['result']['bindings'] if b['name'] == 'HUB_DB' and b['type'] == 'd1')
+          print(db.get('database_id') or db['id'])
+          PY
+            )"
           fi
           [ -n "$HUB_D1_DATABASE_ID" ] || { echo "::error::could not resolve the hub-auth D1 database id"; exit 1; }
           echo "::add-mask::$HUB_D1_DATABASE_ID"
