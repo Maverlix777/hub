@@ -38,6 +38,8 @@ def main() -> None:
     for src in sorted(PUBLIC.rglob("*")):
         if not src.is_file():
             continue
+        if src.relative_to(PUBLIC).parts[0] == "s":  # unlisted download pages (deploy-only, gitignored)
+            continue
         dst = output / src.relative_to(PUBLIC)
         dst.parent.mkdir(parents=True, exist_ok=True)
         shutil.copy2(src, dst)
