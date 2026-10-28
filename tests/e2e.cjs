@@ -149,6 +149,14 @@ const web = http.createServer((req, res) => {
       const lf = await page.locator('.tile[data-id="location-fusion"]').evaluate((e) => e.tagName + '|' + e.getAttribute('href') + '|' + e.rel);
       check(`${width}px: «Location Fusion» ведёт на страницу публичной сборки`, lf === 'A|https://kolobovdjp.org/locationfusion/install/|noopener noreferrer', lf);
       check(`${width}px: no Claude API or Doktor menu links`, await page.locator('.hub-nav a').filter({ hasText: /Claude API|\u0414\u043e\u043a\u0442\u043e\u0440/ }).count() === 0);
+      // The legacy direct route remains supported after its menu entry is removed.
+      await page.goto(`${SITE}apps/chat.html`);
+      const ov2 = await page.evaluate(() => document.documentElement.scrollWidth - window.innerWidth);
+      check(`${width}px: legacy chat has no horizontal overflow`, ov2 <= 0, ov2);
+      await page.screenshot({ path: path.join(SHOTS, `chat-${width}.png`), fullPage: true });
+      await page.locator('#hub').click();
+      await page.waitForURL((u) => u.href === SITE || u.href === `${SITE}index.html`);
+      check(`${width}px: Hub brand returns to homepage`, [SITE, `${SITE}index.html`].includes(page.url()), page.url());
       await page.locator('.tile[data-id="downloads"]').click();
       await page.waitForURL('**/apps/downloads.html');
       const reg = await page.evaluate(() => JSON.parse(document.getElementById('manifest').textContent));
