@@ -102,6 +102,8 @@ jobs:
               raise SystemExit("HUB_D1_DATABASE_ID is not a real D1 database id")
           cfg = json.load(open("wrangler.jsonc"))
           cfg.pop("$schema", None)
+          cfg["name"] = "kolobovdjp-hub-next"
+          cfg.pop("routes", None)
           for db in cfg["d1_databases"]:
               if db["binding"] == "HUB_DB":
                   db["database_id"] = d1
@@ -125,5 +127,5 @@ jobs:
         run: npx wrangler deploy --keep-vars --config wrangler.production.local.jsonc
       - name: Smoke-check security headers on the live route
         run: |
-          curl -sSI --max-time 20 https://kolobovdjp.org/hub/style.css | tr -d '\r' | tee "$RUNNER_TEMP/headers.txt"
+          curl -sSI --max-time 20 https://hub.kolobovdjp.org/hub/style.css | tr -d '\r' | tee "$RUNNER_TEMP/headers.txt"
           grep -qi '^referrer-policy: no-referrer' "$RUNNER_TEMP/headers.txt"
