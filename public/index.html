@@ -7,11 +7,9 @@
      JSON, а не inline-JS: CSP default-src 'self' запрещает inline-скрипты, данные читает hub.js. -->
 <script type="application/json" id="apps">
 [
-  { "id": "chat", "title": "Claude API", "desc": "Чат с собственным ключом Anthropic. Запросы идут прямо из браузера", "action": "Открыть чат", "category": "ИНСТРУМЕНТ", "status": "ready", "href": "apps/chat.html" },
   { "id": "location-fusion", "title": "Location Fusion", "desc": "Геолокация на iOS. Тестовая сборка для SideStore и инструкция по настройке", "action": "Открыть установку", "category": "ПРИЛОЖЕНИЕ · iOS", "status": "ready", "href": "https://kolobovdjp.org/locationfusion/install/" },
   { "id": "board", "title": "Рабочая доска", "desc": "Задачи, идеи и сообщения команды. Доступ для разрешённых участников", "action": "Открыть доску", "category": "РАБОЧЕЕ ПРОСТРАНСТВО", "status": "ready", "href": "/hub/" },
-  { "id": "downloads", "title": "Загрузки", "desc": "Сборки приложений, версии и ссылки на файлы. Недоступные файлы отмечены отдельно", "action": "Открыть каталог", "category": "ФАЙЛЫ И СБОРКИ", "status": "ready", "href": "apps/downloads.html" },
-  { "id": "doktor", "title": "Доктор", "desc": "Диагностика по данным OBD. Сборка iOS для SideStore", "action": "Открыть релизы", "category": "ПРИЛОЖЕНИЕ · iOS", "status": "ready", "href": "https://github.com/Maverlix777/doktor-sidestore/releases/latest" }
+  { "id": "downloads", "title": "Загрузки", "desc": "Сборки приложений, версии и ссылки на файлы. Недоступные файлы отмечены отдельно", "action": "Открыть каталог", "category": "ФАЙЛЫ И СБОРКИ", "status": "ready", "href": "apps/downloads.html" }
 ]
 </script>
 <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
@@ -31,7 +29,6 @@
   <nav class="hub-nav" aria-label="Основная навигация">
     <a id="nav-board" href="/hub/" data-nav-app="board" hidden>Доска</a>
     <a id="nav-apps" aria-current="page" href="/hub/index.html">Приложения</a>
-    <a id="nav-chat" href="/hub/apps/chat.html" data-nav-app="chat" hidden>Claude API</a>
     <a id="nav-downloads" href="/hub/apps/downloads.html" data-nav-app="downloads" hidden>Загрузки</a>
   </nav>
   <div class="account" id="account" hidden><span id="account-name"></span><button id="logout" type="button" hidden>Выйти</button></div>

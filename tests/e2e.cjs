@@ -145,24 +145,15 @@ const web = http.createServer((req, res) => {
       console.log(`info ${width}px: колонок сетки = ${cols}`);
       await page.screenshot({ path: path.join(SHOTS, `hub-${width}.png`), fullPage: true });
 
-      const dok = await page.locator('.tile[data-id="doktor"]').evaluate((e) => e.tagName + '|' + e.getAttribute('href') + '|' + e.rel);
-      check(`${width}px: «Доктор» ссылка на релизы SideStore`, dok === 'A|https://github.com/Maverlix777/doktor-sidestore/releases/latest|noopener noreferrer', dok);
+      check(`${width}px: Doktor and Claude API removed from catalog`, await page.locator('.tile[data-id="doktor"], .tile[data-id="chat"]').count() === 0);
       const lf = await page.locator('.tile[data-id="location-fusion"]').evaluate((e) => e.tagName + '|' + e.getAttribute('href') + '|' + e.rel);
       check(`${width}px: «Location Fusion» ведёт на страницу публичной сборки`, lf === 'A|https://kolobovdjp.org/locationfusion/install/|noopener noreferrer', lf);
-      await page.locator('.tile[data-id="chat"]').click();
-      await page.waitForURL('**/apps/chat.html');
-      check(`${width}px: плитка «Чат» открывает apps/chat.html`, page.url() === `${SITE}apps/chat.html`, page.url());
-      const ov2 = await page.evaluate(() => document.documentElement.scrollWidth - window.innerWidth);
-      check(`${width}px: чат без горизонтального скролла`, ov2 <= 0, ov2);
-      await page.screenshot({ path: path.join(SHOTS, `chat-${width}.png`), fullPage: true });
-      await page.locator('#hub').click();
-      await page.waitForURL((u) => u.href === SITE || u.href === `${SITE}index.html`);
-      check(`${width}px: кнопка «Хаб» возвращает на главную`, [SITE, `${SITE}index.html`].includes(page.url()), page.url());
-      // раздел «Загрузки»: реестр встроен в страницу (fetch под CSP заблокирован)
+      check(`${width}px: no Claude API or Doktor menu links`, await page.locator('.hub-nav a').filter({ hasText: /Claude API|\u0414\u043e\u043a\u0442\u043e\u0440/ }).count() === 0);
       await page.locator('.tile[data-id="downloads"]').click();
       await page.waitForURL('**/apps/downloads.html');
       const reg = await page.evaluate(() => JSON.parse(document.getElementById('manifest').textContent));
       const cards = await page.locator('.dl').count();
+      check(`${width}px: Doktor available in downloads`, await page.locator('.dl[data-project="\u0414\u043e\u043a\u0442\u043e\u0440"] a.btn[href^="https://"]').count() > 0);
       check(`${width}px: «Загрузки» показывают доступные и ожидающие записи из реестра`, cards === reg.length && cards >= 3, cards);
       const nebulaAndroid = reg.findIndex((item) => item.project === 'Nebula Pop' && item.platform.toLowerCase() === 'android');
       const unavailableLinks = nebulaAndroid < 0 ? -1 : await page.locator('.dl').nth(nebulaAndroid).locator('a.btn').count();
