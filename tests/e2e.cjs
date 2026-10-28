@@ -95,6 +95,12 @@ const web = http.createServer((req, res) => {
     res.writeHead(200, { 'content-type': 'application/json' });
     return res.end('{"username":"test","entitlement":"free"}');
   }
+  // Synthetic public configuration only. No push subscription is created by traversal.
+  if (req.method === 'GET' && url === PREFIX + 'api/push/config') {
+    res.writeHead(200, { 'content-type': 'application/json', 'cache-control': 'no-store' });
+    res.end(JSON.stringify({ publicKey: Buffer.concat([Buffer.from([4]), Buffer.alloc(64, 1)]).toString('base64url') }));
+    return;
+  }
   if (req.method === 'POST' && url === PREFIX + 'api/logout') { res.writeHead(204); return res.end(); }
   let rel = url.slice(PREFIX.length);
   if (rel === 'login/') rel = 'login.html';
@@ -133,6 +139,9 @@ const web = http.createServer((req, res) => {
       const ctx = await browser.newContext({ viewport: { width, height: 844 }, colorScheme: 'light', ignoreHTTPSErrors: true });
       const page = await ctx.newPage(); watch(page);
       await page.goto(`${SITE}index.html`);
+      await page.waitForFunction(() => document.getElementById('push-status').textContent === 'Получай уведомления, когда агенты отправляют изменения.');
+      check(`${width}px: push fixture enables explicit subscription action`,
+        await page.$eval('#push-toggle', button => !button.disabled && button.textContent === 'Включить уведомления'));
       // The synthetic session has no app restrictions; require the exact catalog,
       // including order and count, rather than a stale hardcoded tile total.
       const expectedTiles = await page.evaluate(() => JSON.parse(document.getElementById('apps').textContent).map((app) => app.id));

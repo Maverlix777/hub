@@ -14,7 +14,7 @@ with tempfile.TemporaryDirectory(prefix="hub-site-check-") as temp:
     bad = [name for name in forbidden if (site / name).exists()]
     if bad:
         raise SystemExit(f"private/source files in Pages artifact: {bad}")
-    expected = {"index.html", "hub.js", "style.css", "manifest.webmanifest", "login.html", "login.js",
+    expected = {"index.html", "hub.js", "push.js", "push-sw.js", "style.css", "manifest.webmanifest", "login.html", "login.js",
                 "login.css", "apps/chat.html", "apps/chat.js", "apps/chat.css", "apps/downloads.html",
                 "apps/downloads.js", "apps/downloads.css", "apps/board.html", "apps/board.js", "apps/board.css", "icons/icon-180.png", "icons/icon-192.png",
                 "icons/icon-512.png",

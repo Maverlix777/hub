@@ -25,6 +25,16 @@ test('subpath trap serves the synthetic board API and still rejects missing rout
     const outbox = await fetch(`${base}/hub/api/outbox`);
     assert.equal(outbox.status, 200);
     assert.deepEqual(await outbox.json(), { items: [], nextCursor: null, delivery: { status: 'not_configured' } });
+    const pushConfig = await fetch(`${base}/hub/api/push/config`);
+    assert.equal(pushConfig.status, 200);
+    assert.equal(pushConfig.headers.get('cache-control'), 'no-store');
+    const publicKey = (await pushConfig.json()).publicKey;
+    assert.match(publicKey, /^[A-Za-z0-9_-]+$/);
+    assert.equal(Buffer.from(publicKey, 'base64url').length, 65);
+    assert.equal(Buffer.from(publicKey, 'base64url')[0], 4);
+    assert.equal((await fetch(`${base}/api/push/config`)).status, 404);
+    assert.equal((await fetch(`${base}/hub/api/push/config`, { method: 'POST' })).status, 404);
+    assert.equal((await fetch(`${base}/hub/api/push/subscriptions`)).status, 404);
     assert.equal((await fetch(`${base}/api/outbox`)).status, 404);
     assert.equal((await fetch(`${base}/hub/api/outbox`, { method: 'POST' })).status, 404);
     assert.equal((await fetch(`${base}/api/board`)).status, 404);

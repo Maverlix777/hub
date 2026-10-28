@@ -1,0 +1,44 @@
+name: Agent Web Push
+
+on:
+  push:
+  workflow_dispatch:
+  workflow_call:
+    secrets:
+      PUSH_DELIVERY_TOKEN:
+        required: false
+      VAPID_PUBLIC_KEY:
+        required: false
+      VAPID_PRIVATE_KEY:
+        required: false
+      VAPID_SUBJECT:
+        required: false
+
+permissions:
+  contents: read
+
+jobs:
+  notify:
+    if: github.repository_owner == 'Maverlix777' && github.event.repository.fork != true
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    steps:
+      # Hub pushes execute that revision; external callers execute trusted hub main.
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          repository: Maverlix777/hub
+          ref: ${{ github.repository == 'Maverlix777/hub' && github.sha || 'main' }}
+          persist-credentials: false
+      - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
+        with:
+          node-version: 22
+          cache: npm
+      - run: npm ci --ignore-scripts
+      - name: Send notification when configured
+        run: node tools/send-push.mjs
+        env:
+          HUB_PUSH_URL: https://hub.kolobovdjp.org/hub/api/push/delivery
+          PUSH_DELIVERY_TOKEN: ${{ secrets.PUSH_DELIVERY_TOKEN }}
+          VAPID_PUBLIC_KEY: ${{ secrets.VAPID_PUBLIC_KEY }}
+          VAPID_PRIVATE_KEY: ${{ secrets.VAPID_PRIVATE_KEY }}
+          VAPID_SUBJECT: ${{ secrets.VAPID_SUBJECT }}

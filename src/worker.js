@@ -3,6 +3,7 @@ import { loadBoardSources } from './board-sources.js';
 import { readTelemetry } from './telemetry.js';
 import { validatePayload, existingSubmission, enqueue, listSubmissions } from './outbox.js';
 import { readIssueResponses } from './issue-responses.js';
+import { handlePush } from './push.js';
 import {
   generateAuthenticationOptions,
   generateRegistrationOptions,
@@ -406,6 +407,11 @@ function responseWithCookie(response, cookie) {
 
 async function api(request, env, path, session, webauthn, now, canonicalOrigin, trustedClientIP = null, ctx = null) {
   const db = env.HUB_DB;
+  if (path.startsWith('/hub/api/push/')) {
+    try { return await handlePush(request, env, path, session, isBoardOwner(session, env), canonicalOrigin, now,
+      candidate => isBoardOwner(candidate, env)); }
+    catch { return json({ error: 'push_unavailable' }, 503); }
+  }
   if (request.method === 'GET' && path === '/hub/api/session') {
     return session
       ? json({
@@ -675,6 +681,11 @@ export function createWorker(webauthn = {
       }
       if (pathname.startsWith('/hub/api/') && request.method === 'POST' && !originAllowed(request, canonicalOrigin)) {
         return json({ error: 'forbidden_origin' }, 403);
+      }
+      // Browsers update service workers after sessions expire. This script contains no private data.
+      if (pathname === '/hub/push-sw.js' && ['GET', 'HEAD'].includes(request.method)) {
+        const response = await env.ASSETS.fetch(withPath(request, '/push-sw.js'));
+        return new Response(response.body, { status: response.status, headers: { ...Object.fromEntries(response.headers), ...noStore } });
       }
       const session = await loadSession(request, env, now);
       if (pathname.startsWith('/hub/api/')) {
