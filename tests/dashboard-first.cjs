@@ -58,7 +58,9 @@ const session={username:'synthetic-owner',entitlement:'paid',apps:['board','chat
    await page.goto(base+route);await page.locator('#account-name').filter({hasText:session.username}).waitFor();
    await page.addStyleTag({content:'.hub-nav a { font-size:18px !important; letter-spacing:.3px !important; }'});
    assert.equal(await page.evaluate(()=>document.documentElement.scrollWidth<=innerWidth),true,`scaled navigation overflow on ${route}`);
-   const links=page.locator('.hub-nav a');assert.equal(await links.count(),4);
+   assert.equal(await page.locator('.hub-nav a').filter({hasText:/Claude API|\u0414\u043e\u043a\u0442\u043e\u0440/}).count(),0,`removed navigation on ${route}`);
+   assert.equal(await page.locator('.hub-nav a[href="/hub/apps/chat.html"]').count(),0,`no duplicate chat link on ${route}`);
+   const links=page.locator('.hub-nav a');assert.equal(await links.count(),3);
    const rows=[];
    for(const link of await links.all()){
     assert.equal(await link.isVisible(),true);const box=await link.boundingBox();assert.ok(box.x>=0&&box.x+box.width<=320,`scaled link outside viewport on ${route}`);rows.push(Math.round(box.y));
@@ -78,12 +80,15 @@ const session={username:'synthetic-owner',entitlement:'paid',apps:['board','chat
   await page.locator('#message-text').fill('Synthetic QA message');await page.locator('#message-form button[type=submit]').click();await page.locator('#outbox-list .outbox-entry').waitFor();
   await page.goto(base+'/hub/apps/board.html');await page.locator('#columns button.card').first().waitFor();
   const catalog=page.locator('a[href="/hub/index.html"]');assert.ok(await catalog.count()>0,'explicit catalog navigation');await catalog.first().click();await page.waitForURL('**/hub/index.html');
-  await page.locator('#grid a[data-id="chat"]').waitFor();assert.equal(await page.locator('#grid a[data-id="chat"]').getAttribute('href'),'apps/chat.html');
+  await page.locator('#grid a[data-id="downloads"]').waitFor();
+  for(const id of ['chat','doktor'])assert.equal(await page.locator(`#grid [data-id="${id}"]`).count(),0,`removed catalog tile ${id}`);
   assert.equal(await page.locator('#grid a[data-id="downloads"]').getAttribute('href'),'apps/downloads.html');
   assert.ok((await page.locator('#grid a[data-id="board"]').getAttribute('href')).endsWith('/hub/'));
-  await page.locator('#grid a[data-id="chat"]').click();await page.waitForURL('**/hub/apps/chat.html');await page.locator('#input').waitFor();
   await page.locator('#nav-downloads').click();await page.waitForURL('**/hub/apps/downloads.html');await page.locator('#list li').first().waitFor();
   assert.ok(await page.locator('#list a[href^="https://"]').count()>0,'download links retained');
+  const doktor=page.locator('#list li[data-project="\u0414\u043e\u043a\u0442\u043e\u0440"]');
+  assert.ok(await doktor.count()>0,'Doktor retained in downloads');
+  assert.ok(await doktor.locator('a.btn[href^="https://"]').count()>0,'Doktor download remains actionable');
   await page.locator('#q').fill('no-match-synthetic-qa-999');assert.equal(await page.locator('#list a[href^="https://"]').count(),0);await page.locator('#q').fill('');
   await page.locator('#nav-board').click();await page.waitForURL(base+'/hub/');await page.locator('#columns button.card').first().waitFor();
   const filtered=await browser.newPage();
@@ -121,6 +126,6 @@ const session={username:'synthetic-owner',entitlement:'paid',apps:['board','chat
   const otherTab=await page.context().newPage();await otherTab.goto(base+'/hub/login/');
   await otherTab.evaluate(()=>localStorage.setItem('hub.session.logout',String(Date.now())));
   await page.waitForURL('**/hub/login/');await otherTab.close();
-  assert.deepEqual(failures,[]);console.log('PASS dashboard viewport/card geometry, root/legacy/catalog links, modal keyboard/Back/Escape/focus, literal XSS, search/chat, app filters and logout before delayed private response; synthetic frontend API only.');
+  assert.deepEqual(failures,[]);console.log('PASS dashboard viewport/card geometry, root/legacy/catalog links, modal keyboard/Back/Escape/focus, literal XSS, search, menu cleanup/Doktor downloads, app filters and logout before delayed private response; synthetic frontend API only.');
  }finally{if(browser)await browser.close();await new Promise(resolve=>server.close(resolve));}
 })().catch(e=>{console.error(e);process.exitCode=1;});
