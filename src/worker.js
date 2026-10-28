@@ -113,6 +113,7 @@ function appIdForAsset(assetPath) {
   return match ? match[1] : '';
 }
 
+const HIDDEN_PAGE = /^\/hub\/s\/([0-9a-f]{32})\/(index\.html|[A-Za-z0-9._-]+\.shortcut)?$/;
 const CACHEABLE_STATIC = /^\/hub\/(?:icons\/.+|style\.css|login\.css|manifest\.webmanifest|apps\/[^/]+\.css)$/;
 // Doktor pages are public and session-free, so they may be cached by shared caches.
 const DOKTOR_CACHE_CONTROL = 'public, max-age=300';
@@ -672,6 +673,24 @@ export function createWorker(webauthn = {
         delete headers['set-cookie'];
         if (response.status === 200) headers['cache-control'] = DOKTOR_CACHE_CONTROL; // finalize() keeps it for /doktor/*
         return new Response(response.body, { status: response.status, headers });
+      }
+      // Unlisted download pages: /hub/s/<32 hex>/ and the file inside. No session, no D1.
+      // The unguessable directory lives only in the deployed assets (never committed) and 404s otherwise.
+      const hidden = HIDDEN_PAGE.exec(pathname);
+      if (hidden) {
+        if (!['GET', 'HEAD'].includes(request.method)) return new Response('Method not allowed', { status: 405, headers: { ...noStore, allow: 'GET, HEAD' } });
+        const file = hidden[2] || 'index.html';
+        const response = await env.ASSETS.fetch(withPath(request, `/s/${hidden[1]}/${file}`));
+        if (response.status !== 200) return new Response('Not found', { status: 404, headers: { ...noStore, 'x-robots-tag': 'noindex, nofollow' } });
+        const headers = { ...Object.fromEntries(response.headers), ...noStore, 'x-robots-tag': 'noindex, nofollow' };
+        delete headers['set-cookie'];
+        if (file !== 'index.html') {
+          headers['content-type'] = 'application/octet-stream';
+          headers['content-disposition'] = `attachment; filename="${file}"`;
+        } else {
+          headers['content-type'] = 'text/html; charset=utf-8';
+        }
+        return new Response(response.body, { status: 200, headers });
       }
       if (pathname.startsWith('/hub/api/') && request.method === 'POST' && !originAllowed(request, canonicalOrigin)) {
         return json({ error: 'forbidden_origin' }, 403);
