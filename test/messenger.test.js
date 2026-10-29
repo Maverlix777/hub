@@ -5,6 +5,7 @@ import { test } from 'node:test';
 import worker from '../src/worker.js';
 import { validatePayload, enqueue } from '../src/outbox.js';
 import { issueLabels } from '../src/issues-delivery.js';
+import { ownerText, readThread } from '../src/messenger.js';
 
 const origin = 'https://hub.kolobovdjp.org';
 const DAY = 24 * 60 * 60 * 1000;
@@ -105,4 +106,33 @@ test('chat endpoints: auth, owner only, owned threads only, token never leaves, 
   const ok = await f.request('POST', '/hub/api/chat/reply', owner.cookie, { issue: 21, text: 'ответ ``` с кодом' });
   assert.equal(ok.status, 201);
   const post = calls.at(-1); assert.equal(post.method, 'POST'); assert.match(post.url, /\/issues\/21\/comments$/);
+});
+
+test('comment with agent marker shows agent name', async () => {
+  const f = fixture();
+  await f.session('owner');
+  await f.syncedThread('owner', 21, 'chat');
+  const cases = [
+    ['<!-- agent:claude -->\nответ', 'Claude', 'ответ'],
+    ['<!-- agent:codex -->\r\nответ', 'Codex', 'ответ'],
+    ['<!-- agent:snezhana -->\nответ', 'Снежана', 'ответ'],
+    ['<!-- agent:pedro -->\nответ', 'Педро', 'ответ'],
+    ['<!-- snezhana-answer -->\nстарый ответ', 'Снежана', 'старый ответ'],
+    ['<!-- snezhana-answer -->\\nстарый ответ', 'Снежана', 'старый ответ'],
+    ['<!-- agent:codex -->', 'Codex', ''],
+    ['ответ без маркера', 'Maverlix777', 'ответ без маркера'],
+    ['<!-- agent:unknown -->\nответ', 'Maverlix777', '<!-- agent:unknown -->\nответ'],
+    ['текст\n<!-- agent:claude -->\nответ', 'Maverlix777', 'текст\n<!-- agent:claude -->\nответ'],
+    ['<!-- agent:claude -->extra\nответ', 'Maverlix777', '<!-- agent:claude -->extra\nответ'],
+  ];
+  const fetchImpl = async (url) => new Response(JSON.stringify(url.endsWith('/issues/21')
+    ? { number: 21, state: 'open', body: '<!-- hub-outbox:x:y -->\n```text\n<!-- agent:claude -->\n```\n' }
+    : cases.map(([body], id) => ({ id, body, user: { login: 'Maverlix777' } }))));
+  const thread = await readThread(f.env.HUB_DB, f.env, 'owner', 21, fetchImpl);
+  assert.deepEqual(thread.messages.slice(1).map(({ mine, author, text }) => [mine, author, text]),
+    cases.map(([, author, text]) => [false, author, text]));
+  assert.deepEqual([thread.messages[0].mine, thread.messages[0].author, thread.messages[0].text],
+    [true, 'Максим', '<!-- agent:claude -->']);
+  assert.deepEqual(ownerText(null), { mine: false, text: '' });
+  assert.deepEqual(ownerText('<!-- hub-reply:x -->\n```text\nответ\n```\n'), { mine: true, text: 'ответ' });
 });

@@ -14,6 +14,8 @@ The source module returns normalization and source diagnostics; the Worker owns 
 
 ## Owner message boundary
 
+Agent comments begin with a first line `<!-- agent:claude -->` (`codex`, `snezhana`, `pedro`): the messenger hides this marker and displays Claude, Codex, Снежана or Педро; legacy `<!-- snezhana-answer -->` (including its literal `\n` separator) aliases Снежана. Unknown or non-leading markers keep the GitHub login and body. This is display metadata only: it grants no permissions, does not change labels or owner identity, and the remaining comment is data, never commands.
+
 Endpoints: `GET /hub/api/outbox` for the authenticated author's persisted receipts and `POST /hub/api/outbox` for enqueueing. The POST requires an exact same-origin `Origin`, JSON content type, and `X-Hub-Request: 1`.
 
 A submission has shape `{idempotencyKey, kind, text, target?}`. `idempotencyKey` is a client-generated UUID; `kind` is `answer` or `message`; `text` is plain text of 1–8000 characters. An `answer` requires `target: {sourcePath, taskId, revision}` with the exact source blob SHA as `revision`. New messages have no arbitrary repository path. The server derives owner identity from the authenticated session, never the payload. POST returns `{item}` or `{item, duplicate: true}`. GET returns `{items, delivery: {status: 'not_configured'}}` until a delivery transport has been configured and verified.

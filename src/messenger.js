@@ -4,6 +4,9 @@ const REPO = 'Maverlix777/agent-handoffs';
 const API = `https://api.github.com/repos/${REPO}`;
 const MAX_TEXT = 8000;
 const MARKER = /^<!-- hub-(?:outbox|reply):[^>]*-->/;
+const AGENT_MARKER = /^<!-- agent:(claude|codex|snezhana|pedro) -->(?:\r?\n|$)/;
+const LEGACY_AGENT_MARKER = /^<!-- snezhana-answer -->(?:\r?\n|\\n|$)/;
+const AGENT_NAMES = { claude: 'Claude', codex: 'Codex', snezhana: 'Снежана', pedro: 'Педро' };
 const failure = (code) => Object.assign(new Error(code), { code });
 
 function tokenReady(env) {
@@ -24,7 +27,12 @@ async function gh(env, path, body, fetchImpl = fetch) {
 // Hub-written bodies carry the owner text in a fenced block; anything else is shown as is.
 export function ownerText(body) {
   const text = String(body || '');
-  if (!MARKER.test(text)) return { mine: false, text: text.slice(0, MAX_TEXT) };
+  if (!MARKER.test(text)) {
+    const agent = AGENT_MARKER.exec(text);
+    const marker = agent || LEGACY_AGENT_MARKER.exec(text);
+    return { mine: false, ...(marker ? { author: AGENT_NAMES[agent ? agent[1] : 'snezhana'] } : {}),
+      text: text.slice(marker ? marker[0].length : 0).slice(0, MAX_TEXT) };
+  }
   const match = /(`{3,})text\n([\s\S]*?)\n\1\s*$/.exec(text);
   return { mine: true, text: (match ? match[2] : text.replace(MARKER, '').trim()).slice(0, MAX_TEXT) };
 }
@@ -68,7 +76,7 @@ export async function readThread(db, env, ownerId, issue, fetchImpl = fetch) {
     if (rows.length < 100) break;
   }
   const messages = [{ id: `i${issue}`, ...ownerText(head.body), author: 'Максим', at: head.created_at },
-    ...comments.map((c) => ({ id: String(c.id), ...ownerText(c.body), author: c.user?.login || 'agent', at: c.created_at }))]
+    ...comments.map((c) => ({ id: String(c.id), author: c.user?.login || 'agent', ...ownerText(c.body), at: c.created_at }))]
     .map((m) => ({ ...m, author: m.mine ? 'Максим' : String(m.author).slice(0, 60) }));
   return { issue, addressee: payload.addressee, mode: payload.mode === 'chat' ? 'chat' : 'task', state: head.state, messages };
 }
