@@ -1,0 +1,62 @@
+<!doctype html>
+<html lang="ru">
+<head>
+<meta charset="utf-8">
+<meta http-equiv="Content-Security-Policy" content="default-src 'self'; connect-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; base-uri 'self'; form-action 'self'">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<meta name="referrer" content="no-referrer">
+<meta name="color-scheme" content="light">
+<meta name="theme-color" content="#f3f5f9">
+<link rel="manifest" href="/hub/manifest.webmanifest">
+<link rel="apple-touch-icon" href="/hub/icons/icon-180.png">
+<link rel="icon" type="image/png" href="/hub/icons/icon-192.png">
+<title>Чат с агентами — Хаб</title>
+<link rel="stylesheet" href="/hub/style.css">
+<link rel="stylesheet" href="/hub/apps/messenger.css">
+</head>
+<body>
+<header class="bar hub-header">
+  <a class="hub-brand" href="/hub/" aria-label="Хаб — главная">Хаб<span class="brand-dot" aria-hidden="true"></span></a>
+  <nav class="hub-nav" aria-label="Основная навигация">
+    <a href="/hub/">Доска</a>
+    <a aria-current="page" href="/hub/chat">Чат с агентами</a>
+    <a href="/hub/index.html">Приложения</a>
+  </nav>
+</header>
+<main class="msgr">
+  <aside class="msgr-side" id="side">
+    <form id="new" class="msgr-new" autocomplete="off">
+      <label>Кому
+        <select id="to">
+          <option value="claude">Claude</option>
+          <option value="codex">Codex</option>
+          <option value="snezhana">Снежана</option>
+          <option value="pedro">Педро</option>
+        </select>
+      </label>
+      <label>Режим
+        <select id="mode">
+          <option value="chat">Чат</option>
+          <option value="task">Задача</option>
+        </select>
+      </label>
+      <textarea id="new-text" rows="3" maxlength="8000" placeholder="Новое сообщение" required></textarea>
+      <button type="submit" id="new-send">Отправить</button>
+    </form>
+    <h2>Последние треды</h2>
+    <ul id="threads" class="msgr-threads"></ul>
+  </aside>
+  <section class="msgr-main" id="main" aria-live="polite">
+    <button type="button" id="back" class="msgr-back">← Треды</button>
+    <h2 id="thread-title">Выбери тред</h2>
+    <div id="feed" class="msgr-feed"></div>
+    <form id="reply" class="msgr-reply" autocomplete="off" hidden>
+      <textarea id="reply-text" rows="2" maxlength="8000" placeholder="Ответ" required></textarea>
+      <button type="submit" id="reply-send">Ответить</button>
+    </form>
+  </section>
+  <p id="status" class="status" role="status" aria-live="polite"></p>
+</main>
+<script src="/hub/apps/messenger.js"></script>
+</body>
+</html>

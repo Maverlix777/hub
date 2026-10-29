@@ -4,6 +4,7 @@ import { readTelemetry } from './telemetry.js';
 import { validatePayload, existingSubmission, enqueue, listSubmissions } from './outbox.js';
 import { readIssueResponses } from './issue-responses.js';
 import { handlePush } from './push.js';
+import { listThreads, readThread, replyToThread } from './messenger.js';
 import {
   generateAuthenticationOptions,
   generateRegistrationOptions,
@@ -14,7 +15,9 @@ import {
 const SESSION_COOKIE = '__Host-hub_session';
 const GATEWAY_TOKEN_HEADER = 'X-Hub-Gateway-Token';
 const GATEWAY_CLIENT_IP_HEADER = 'X-Hub-Client-IP';
-const SESSION_TTL_MS = 14 * 24 * 60 * 60 * 1000;
+const SESSION_TTL_MS = 90 * 24 * 60 * 60 * 1000;
+// Sliding renewal: a live session is extended at most once per hour.
+const SESSION_RENEW_AFTER_MS = 60 * 60 * 1000;
 const CHALLENGE_TTL_MS = 2 * 60 * 1000;
 const RATE_WINDOW_MS = 60 * 1000;
 const MAX_BODY_BYTES = 128 * 1024;
@@ -239,11 +242,11 @@ function cookieValue(request, name) {
 
 function setSessionCookie(token, expiresAt) {
   const maxAge = Math.max(0, Math.floor((expiresAt - Date.now()) / 1000));
-  return `${SESSION_COOKIE}=${token}; Path=/; Max-Age=${maxAge}; Secure; HttpOnly; SameSite=Strict`;
+  return `${SESSION_COOKIE}=${token}; Path=/; Max-Age=${maxAge}; Secure; HttpOnly; SameSite=Lax`;
 }
 
 function clearSessionCookie() {
-  return `${SESSION_COOKIE}=; Path=/; Max-Age=0; Secure; HttpOnly; SameSite=Strict`;
+  return `${SESSION_COOKIE}=; Path=/; Max-Age=0; Secure; HttpOnly; SameSite=Lax`;
 }
 
 function normalizeUsername(value) {
@@ -346,7 +349,7 @@ async function loadSession(request, env, now = Date.now()) {
   if (!token || !/^[A-Za-z0-9_-]{40,48}$/.test(token)) return null;
   const tokenHash = await sha256(token);
   return env.HUB_DB.prepare(`
-    SELECT u.id, u.username, e.tier
+    SELECT u.id, u.username, e.tier, s.token_hash AS tokenHash, s.expires_at AS expiresAt
     FROM sessions s JOIN users u ON u.id = s.user_id
     JOIN entitlements e ON e.user_id = u.id
     WHERE s.token_hash = ? AND s.revoked_at IS NULL AND s.expires_at > ?
@@ -472,6 +475,38 @@ async function api(request, env, path, session, webauthn, now, canonicalOrigin, 
       // A missing unapplied migration and a transient storage failure are not an empty queue.
       return json({ error: 'outbox_unavailable' }, 503);
     }
+  }
+  if (path.startsWith('/hub/api/chat/')) {
+    if (!session) return json({ error: 'unauthorized' }, 401);
+    if (!isBoardOwner(session, env)) return json({ error: 'forbidden' }, 403);
+    const fail = (error) => {
+      const code = error?.code;
+      return code === 'not_found' ? json({ error: 'not_found' }, 404) : code === 'invalid_issue' ? json({ error: 'invalid_issue' }, 400)
+        : code === 'not_configured' ? json({ error: 'not_configured' }, 503) : json({ error: 'chat_unavailable' }, 502);
+    };
+    try {
+      if (request.method === 'GET' && path === '/hub/api/chat/threads') return json({ threads: await listThreads(db, session.id) });
+      if (request.method === 'GET' && path === '/hub/api/chat/thread') {
+        const raw = new URL(request.url).searchParams.get('issue') || '';
+        return json(await readThread(db, env, session.id, /^[0-9]{1,9}$/.test(raw) ? Number(raw) : 0));
+      }
+      if (request.method === 'POST' && path === '/hub/api/chat/reply') {
+        if (request.headers.get('X-Hub-Request') !== '1'
+          || (request.headers.has('sec-fetch-site') && request.headers.get('sec-fetch-site') !== 'same-origin')) {
+          return json({ error: 'forbidden_request' }, 403);
+        }
+        const body = await readJson(request);
+        const text = body?.text;
+        if (typeof text !== 'string' || !text.trim() || text.length > 8000 || /[\u0000-\u0008\u000b\u000c\u000e-\u001f\u007f]/.test(text)
+          || !Number.isSafeInteger(body.issue)) return json({ error: 'invalid_payload' }, 400);
+        if (!rateLimitKeyReady(env) || !(trustedClientIP || request.headers.get('CF-Connecting-IP'))) return json({ error: 'chat_unavailable' }, 503);
+        if (!await applyRateLimit(db, env, request, 'owner-chat', session.id, 30, now, trustedClientIP)) {
+          return json({ error: 'rate_limited' }, 429, { 'retry-after': '60' });
+        }
+        return json(await replyToThread(db, env, session.id, body.issue, text, boardAuthor(session, env).hubUsername), 201);
+      }
+    } catch (error) { return fail(error); }
+    return json({ error: 'not_found' }, 404);
   }
   // Origin of POST requests is already checked once in fetch().
 
@@ -622,7 +657,7 @@ export function createWorker(webauthn = {
   generateRegistrationOptions, generateAuthenticationOptions, verifyRegistrationResponse, verifyAuthenticationResponse,
 }) {
   const core = {
-    async fetch(request, env, ctx) {
+    async fetch(request, env, ctx, state = {}) {
       const now = Date.now();
       const canonicalOrigin = env.CANONICAL_ORIGIN || 'https://hub.kolobovdjp.org';
       const receivedUrl = new URL(request.url);
@@ -707,6 +742,15 @@ export function createWorker(webauthn = {
         return new Response(response.body, { status: response.status, headers: { ...Object.fromEntries(response.headers), ...noStore } });
       }
       const session = await loadSession(request, env, now);
+      if (session && session.expiresAt - now < SESSION_TTL_MS - SESSION_RENEW_AFTER_MS) {
+        // Best effort: a failed renewal must never break an otherwise valid request.
+        try {
+          const expiresAt = now + SESSION_TTL_MS;
+          const renewed = await env.HUB_DB.prepare('UPDATE sessions SET expires_at = ? WHERE token_hash = ? AND revoked_at IS NULL')
+            .bind(expiresAt, session.tokenHash).run();
+          if (Number(renewed?.meta?.changes || 0) === 1) state.renewCookie = setSessionCookie(cookieValue(request, SESSION_COOKIE), expiresAt);
+        } catch { /* keep the current session as is */ }
+      }
       if (pathname.startsWith('/hub/api/')) {
         return api(request, env, pathname, session, webauthn, now, canonicalOrigin, trustedClientIP, ctx);
       }
@@ -718,10 +762,11 @@ export function createWorker(webauthn = {
       }
       if (!session) return Response.redirect(`${canonicalOrigin}/hub/login/`, 302);
       if (!['GET', 'HEAD'].includes(request.method)) return new Response('Method not allowed', { status: 405, headers: { ...noStore, allow: 'GET, HEAD' } });
+      if (pathname === '/hub/chat' || pathname === '/hub/chat/') pathname = '/hub/apps/messenger.html';
       if (pathname === '/hub/') pathname = isBoardOwner(session, env) ? '/hub/apps/board.html' : '/hub/index.html';
       const assetPath = staticAssetPath(pathname);
       const appId = appIdForAsset(assetPath);
-      if (appId === 'board' ? !isBoardOwner(session, env) : (appId !== null && !appAllowed(appId, session.tier))) return new Response('Forbidden', { status: 403, headers: noStore });
+      if (appId === 'board' || appId === 'messenger' ? !isBoardOwner(session, env) : (appId !== null && !appAllowed(appId, session.tier))) return new Response('Forbidden', { status: 403, headers: noStore });
       const response = await env.ASSETS.fetch(withPath(request, assetPath));
       return new Response(response.body, { status: response.status, headers: { ...Object.fromEntries(response.headers), ...noStore } });
     },
@@ -730,7 +775,13 @@ export function createWorker(webauthn = {
     async fetch(request, env, ctx) {
       let response;
       try {
-        response = await core.fetch(request, env, ctx);
+        const state = {};
+        response = await core.fetch(request, env, ctx, state);
+        if (state.renewCookie && !response.headers.has('set-cookie')) {
+          const headers = new Headers(response.headers);
+          headers.append('set-cookie', state.renewCookie);
+          response = new Response(response.body, { status: response.status, statusText: response.statusText, headers });
+        }
       } catch {
         // No exception text or stack in the response or logs.
         response = json({ error: 'internal_error' }, 500);
