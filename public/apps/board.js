@@ -6,7 +6,7 @@
   const drafts = new Map();
   let cards = []; let sources = []; let items = []; let loading = false; let openKey = null;
   let focusBefore = null; let lastRead = null; let outboxAvailable = false; let nextCursor = null;
-  let authGeneration = 0; let authInvalid = false; let boardFailure = '';
+  const answered = new Set(); let authGeneration = 0; let authInvalid = false; let boardFailure = '';
   const receiptChecks = new Map();
   const deliveryRetries = new Set();
   const cardKey = (card) => card.key || `${card.sourcePath || card.source}::${card.id}`;
@@ -63,7 +63,7 @@
   }
   function render() {
     const query = $('q').value.trim().toLowerCase();
-    const shown = cards.filter((card) => !query || `${card.id} ${card.title} ${card.owner || card.who} ${card.state} ${card.description || ''}`.toLowerCase().includes(query));
+    const shown = cards.filter((card) => !answered.has(cardKey(card))).filter((card) => !query || `${card.id} ${card.title} ${card.owner || card.who} ${card.state} ${card.description || ''}`.toLowerCase().includes(query));
     $('columns').replaceChildren();
     const collapsed = readCollapsed();
     for (const [key, label] of columns) {
@@ -220,6 +220,11 @@
     lock(Boolean(draft.payload)); submit.disabled = draft.busy || Boolean(draft.blocked);
     if (draft.payload) { submit.textContent = 'Повторить сохранение'; status.textContent = 'Предыдущая отправка не подтверждена. Повтор использует тот же идентификатор и текст.'; }
     textarea.addEventListener('input', () => { draft.text = textarea.value; });
+    // Enter submits an answer; Shift+Enter inserts a newline (IME composition is left alone).
+    if (kind === 'answer') textarea.addEventListener('keydown', (event) => {
+      if (event.key !== 'Enter' || event.shiftKey || event.isComposing || event.ctrlKey || event.metaKey || event.altKey) return;
+      event.preventDefault(); form.requestSubmit();
+    });
     form.addEventListener('submit', async (event) => {
       event.preventDefault(); if (draft.busy || authInvalid) return;
       if (!textarea.value.trim()) { textarea.setCustomValidity('Введи текст сообщения.'); textarea.reportValidity(); return; }
@@ -227,15 +232,21 @@
       if (!draft.payload) draft.payload = {idempotencyKey:crypto.randomUUID(),kind,text:textarea.value.trim(),...(target ? {target} : {}),...(picker && picker.value !== 'idea' ? {addressee:picker.value} : {})};
       draft.busy = true; submit.disabled = true; lock(true);
       status.className = 'form-status'; status.textContent = 'Сохраняем…';
+      // Optimistic: an answer leaves the "Вопросы" column at once; rolled back on error.
+      const optimistic = kind === 'answer' && !answered.has(key); if (optimistic) { answered.add(key); render(); }
       try {
         const result = await api('outbox', {method:'POST',headers:{'Content-Type':'application/json','X-Hub-Request':'1'},body:JSON.stringify(draft.payload)});
         requireActiveSession();
         if (!result.item?.id) throw new Error('invalid_receipt');
         items = [result.item,...items.filter((item) => item.id !== result.item.id)]; renderOutbox();
-        status.className = 'form-status success'; status.textContent = result.item.status === 'synced' && issueReceipt(result.item.receipt) ? 'Сохранено и доставлено в GitHub Issues. Ответ исполнителя и результат проверяются отдельно.' : 'Сохранено в очереди. Доставка в GitHub Issues ещё не подтверждена.';
+        const undelivered = ['conflict','error'].includes(result.item.status);
+        if (optimistic && undelivered) { answered.delete(key); render(); }
+        status.className = undelivered ? 'form-status error' : 'form-status success';
+        status.textContent = undelivered ? (result.item.status === 'conflict' ? 'Ответ сохранён, но НЕ доставлен агенту: для этой задачи нет маршрута в GitHub Issues (конфликт). Карточка осталась в «Вопросах». Статус и повтор — в очереди ниже.' : 'Ответ сохранён, но доставка агенту не удалась (ошибка). Карточка осталась в «Вопросах». Статус и повтор — в очереди ниже.') : result.item.status === 'synced' && issueReceipt(result.item.receipt) ? 'Сохранено и доставлено в GitHub Issues. Ответ исполнителя и результат проверяются отдельно.' : 'Сохранено в очереди. Доставка в GitHub Issues ещё не подтверждена.';
         draft.text = ''; draft.payload = null; textarea.value = ''; lock(false); submit.textContent = kind === 'answer' ? 'Сохранить ответ' : 'Сохранить сообщение';
         if (result.item.status === 'pending') checkReceipt(result.item.id);
       } catch (error) {
+        if (optimistic) { answered.delete(key); if (!authInvalid) render(); }
         if (authInvalid) return;
         status.className = 'form-status error'; status.textContent = errors[error.code] || 'Сохранение не подтверждено. Текст остаётся в этой вкладке. Повтори запрос с тем же идентификатором.';
         submit.textContent = 'Повторить сохранение';
