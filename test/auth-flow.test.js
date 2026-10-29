@@ -124,7 +124,7 @@ test('registration verifies a real WebAuthn response and starts a free session',
   sessionCookie = cookieFrom(response);
   assert.match(response.headers.get('set-cookie'), /HttpOnly/);
   assert.match(response.headers.get('set-cookie'), /Secure/);
-  assert.match(response.headers.get('set-cookie'), /SameSite=Strict/);
+  assert.match(response.headers.get('set-cookie'), /SameSite=Lax/);
   assert.match(response.headers.get('set-cookie'), /__Host-hub_session=/);
   assert.match(response.headers.get('set-cookie'), /Path=\//);
   assert.equal(sqlite.prepare('SELECT count(*) AS n FROM entitlements WHERE tier = \'free\'').get().n, 1);

@@ -16,7 +16,7 @@ with tempfile.TemporaryDirectory(prefix="hub-site-check-") as temp:
         raise SystemExit(f"private/source files in Pages artifact: {bad}")
     expected = {"index.html", "hub.js", "push.js", "push-sw.js", "style.css", "manifest.webmanifest", "login.html", "login.js",
                 "login.css", "apps/chat.html", "apps/chat.js", "apps/chat.css", "apps/downloads.html",
-                "apps/downloads.js", "apps/downloads.css", "apps/board.html", "apps/board.js", "apps/board.css", "icons/icon-180.png", "icons/icon-192.png",
+                "apps/downloads.js", "apps/downloads.css", "apps/board.html", "apps/board.js", "apps/board.css", "apps/messenger.html", "apps/messenger.js", "apps/messenger.css", "icons/icon-180.png", "icons/icon-192.png",
                 "icons/icon-512.png",
                 "doktor/index.html", "doktor/privacy.html", "doktor/support.html", "doktor/terms.html", "doktor/style.css",
                 "doktor/blog/first-post.html", "doktor/blog/index.html", "doktor/downloads/index.html"}

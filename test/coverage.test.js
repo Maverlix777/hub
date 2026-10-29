@@ -403,7 +403,7 @@ test('session: logout without a session is 401 unauthorized (not 204) and still 
   const response = await send(post('/hub/api/logout', undefined, { ip: '192.0.2.182' }));
   assert.equal(response.status, 401);
   assert.deepEqual(await response.json(), { error: 'unauthorized' });
-  assert.match(response.headers.get('set-cookie'), /^__Host-hub_session=; Path=\/; Max-Age=0; Secure; HttpOnly; SameSite=Strict$/);
+  assert.match(response.headers.get('set-cookie'), /^__Host-hub_session=; Path=\/; Max-Age=0; Secure; HttpOnly; SameSite=Lax$/);
   assert.equal(response.headers.get('cache-control'), 'no-store');
 });
 

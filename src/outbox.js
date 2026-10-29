@@ -17,7 +17,7 @@ function exactKeys(value, keys) {
 }
 
 export function validatePayload(value) {
-  if (!exactKeys(value, ['idempotencyKey', 'kind', 'text', 'target', 'addressee'])
+  if (!exactKeys(value, ['idempotencyKey', 'kind', 'text', 'target', 'addressee', 'mode'])
     || typeof value.idempotencyKey !== 'string' || !UUID.test(value.idempotencyKey)
     || !['answer', 'message'].includes(value.kind)
     || typeof value.text !== 'string' || !value.text.trim() || value.text.length > 8000
@@ -31,6 +31,12 @@ export function validatePayload(value) {
       || ![...ADDRESSEES, 'idea'].includes(value.addressee)) return null;
     if (value.addressee !== 'idea') addressee = value.addressee;
   }
+  // 'chat' opens a conversation thread (label `chat`) instead of a task (`cloud:ready`); needs a real addressee.
+  let mode = null;
+  if (value.mode !== undefined && value.mode !== null && value.mode !== 'task') {
+    if (value.mode !== 'chat' || !addressee) return null;
+    mode = 'chat';
+  }
   if (value.target !== undefined && value.target !== null) {
     const t = value.target;
     if (!exactKeys(t, ['sourcePath', 'taskId', 'revision'])
@@ -41,7 +47,7 @@ export function validatePayload(value) {
     target = { sourcePath: t.sourcePath, taskId: t.taskId, revision: t.revision };
   }
   if (value.kind === 'answer' && !target) return null;
-  return { idempotencyKey: value.idempotencyKey.toLowerCase(), kind: value.kind, text: value.text, target, ...(addressee ? { addressee } : {}) };
+  return { idempotencyKey: value.idempotencyKey.toLowerCase(), kind: value.kind, text: value.text, target, ...(addressee ? { addressee } : {}), ...(mode ? { mode } : {}) };
 }
 
 function rowToItem(row) {
@@ -60,7 +66,7 @@ function rowToItem(row) {
 }
 
 const payloadJson = (payload) => JSON.stringify({ kind: payload.kind, text: payload.text, target: payload.target,
-  ...(payload.addressee ? { addressee: payload.addressee } : {}) });
+  ...(payload.addressee ? { addressee: payload.addressee } : {}), ...(payload.mode ? { mode: payload.mode } : {}) });
 
 // Read-before-validation permits a retry of an already persisted answer after its source changes.
 export async function existingSubmission(db, ownerId, payload) {
