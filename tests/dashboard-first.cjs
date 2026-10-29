@@ -60,13 +60,16 @@ const session={username:'synthetic-owner',entitlement:'paid',apps:['board','chat
    assert.equal(await page.evaluate(()=>document.documentElement.scrollWidth<=innerWidth),true,`scaled navigation overflow on ${route}`);
    assert.equal(await page.locator('.hub-nav a').filter({hasText:/Claude API|\u0414\u043e\u043a\u0442\u043e\u0440/}).count(),0,`removed navigation on ${route}`);
    assert.equal(await page.locator('.hub-nav a[href="/hub/apps/chat.html"]').count(),0,`no duplicate chat link on ${route}`);
-   const links=page.locator('.hub-nav a');assert.equal(await links.count(),3);
+   const hasMessenger=route==='/hub/'||route==='/hub/index.html';
+   assert.equal(await page.locator('.hub-nav a[href="/hub/chat"]').count(),hasMessenger?1:0,`messenger navigation on ${route}`);
+   const links=page.locator('.hub-nav a');assert.equal(await links.count(),hasMessenger?4:3);
    const rows=[];
    for(const link of await links.all()){
     assert.equal(await link.isVisible(),true);const box=await link.boundingBox();assert.ok(box.x>=0&&box.x+box.width<=320,`scaled link outside viewport on ${route}`);rows.push(Math.round(box.y));
     await link.focus();assert.equal(await link.evaluate(node=>node===document.activeElement),true);await link.click({trial:true});
    }
    assert.ok(new Set(rows).size>1,`scaled navigation did not wrap on ${route}`);
+   console.log(`PASS scaled navigation ${route}: ${rows.length} links, ${new Set(rows).size} rows at 320px; all links visible, in bounds, focusable and actionable`);
    if(route==='/hub/')await page.screenshot({path:path.join(artifactDir,'dashboard-first-scaled-nav-320.png'),fullPage:false});
   }
   await page.setViewportSize({width:1280,height:900});
