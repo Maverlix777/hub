@@ -166,16 +166,10 @@ test('telemetry authorization precedes all reads and optional failure preserves 
   assert.deepEqual(available.counts, result.counts);
 });
 
-test('T2: status age parses a date from the state cell and uses a fixed clock', () => {
-  const now = Date.parse('2026-10-25T22:00:00Z');
-  const table = (state) => `| ID | Задача | Кому | Состояние |\n|---|---|---|---|\n| T-1 | A | y | ${state} |\n`;
-  const age = (state) => buildBoard([{ name: 's', text: table(state) }], now).cards[0].statusAgeLabel;
-  assert.equal(age('Claimed (by x, 2026-10-25 20:30 UTC)'), 'в статусе 1 ч');
-  assert.equal(age('Review 2026-10-25T10:00Z'), 'в статусе 12 ч');
-  assert.equal(age('Claimed 2026-10-20'), 'в статусе 5 дн');
-  assert.equal(age('Claimed'), 'нет данных');
-  assert.equal(age('Claimed 2026-13-45'), 'нет данных');
-  assert.equal(age('Claimed 2026-10-26 23:00'), 'нет данных');
-  assert.equal(parseBoard(table('Claimed 2026-10-25'), 's').cards[0].statusSince, '2026-10-25T00:00:00.000Z');
-  assert.equal(buildBoard([{ name: 's', text: table('Ready 2026-10-25') }], now).cards[0].statusAgeLabel, undefined);
+test('T2: markdown dates are not evidence of a label transition', () => {
+  const table = '| ID | Task | State |\n|---|---|---|\n| T-1 | Task | Review 2026-10-20 |';
+  const card = buildBoard([{name:'s', text:table}]).cards[0];
+  assert.equal(card.statusSince, '');
+  assert.equal(card.statusAgeLabel, 'нет данных');
+  assert.equal(parseBoard(table, 's').cards[0].statusSince, '');
 });
