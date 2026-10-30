@@ -1,5 +1,5 @@
 import { Buffer } from 'node:buffer';
-import { buildBoard, statusAgeLabel } from './board.js';
+import { buildBoard, statusAgeLabel, RAW_BOARD_URLS } from './board.js';
 const REPO = /^[A-Za-z0-9_.-]+\/[A-Za-z0-9_.-]+$/;
 const PATH = /^[A-Za-z0-9_./-]+\.md$/;
 export const DEFAULT_BOARD_PATHS = Object.freeze(['proposals/ai-factory-jobforge/BOARD.md', 'proposals/site-kolobovdjp/BOARD.md']);
@@ -42,13 +42,14 @@ async function blobRevision(text) {
 // Only explicit same-repository Issue links identify a task; PRs and task IDs are not Issues.
 function issueForCard(card, repo) {
   const numbers = new Set();
-  for (const match of card.description.matchAll(/https:\/\/github\.com\/([^/]+\/[^/]+)\/issues\/([1-9]\d*)(?=$|[\s)#?])/g)) {
-    if (match[1].toLowerCase() === repo.toLowerCase()) numbers.add(match[2]);
-  }
-  for (const link of card.evidence) {
-    const url = new URL(link.url);
-    const match = /^\/([^/]+\/[^/]+)\/issues\/([1-9]\d*)\/?$/.exec(url.pathname);
-    if (url.hostname === 'github.com' && match?.[1].toLowerCase() === repo.toLowerCase()) numbers.add(match[2]);
+  const urls = [...(card[RAW_BOARD_URLS] || []), ...card.evidence.map(link => link.url)];
+  for (const raw of urls) {
+    try {
+      const url = new URL(raw);
+      const match = /^\/([^/]+\/[^/]+)\/issues\/([1-9]\d*)\/?$/.exec(url.pathname);
+      if (url.protocol === 'https:' && url.hostname === 'github.com' && !url.port && !url.username && !url.password
+        && match?.[1].toLowerCase() === repo.toLowerCase()) numbers.add(match[2]);
+    } catch { /* Malformed raw links never identify an Issue. */ }
   }
   return numbers.size === 1 ? [...numbers][0] : '';
 }
@@ -75,8 +76,10 @@ async function labelStatus(env, repo, number, fetchImpl, signal) {
       } finally { if (response.body && !response.body.locked) await response.body.cancel().catch(() => {}); }
       if (!Array.isArray(events)) return null;
       for (const event of events) {
-        const label = event?.label?.name?.toLowerCase();
-        if (!Object.hasOwn(STATUS_LABELS, label) || !['labeled', 'unlabeled'].includes(event.event)) continue;
+        if (!['labeled', 'unlabeled'].includes(event?.event)) continue;
+        if (typeof event.label?.name !== 'string' || !event.label.name.trim()) return null;
+        const label = event.label.name.toLowerCase();
+        if (!Object.hasOwn(STATUS_LABELS, label)) continue;
         const time = Date.parse(event.created_at);
         if (!Number.isFinite(time) || time > Date.now() + 5 * 60000) return null;
         const previous = active.get(label);

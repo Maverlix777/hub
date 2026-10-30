@@ -64,3 +64,36 @@ test('truncated histories and redirects preserve cards without trusting incomple
     assert.equal(result.board.cards[0].statusAgeLabel, 'нет данных');
   }
 });
+test('raw issue identity preserves underscores before display sanitization', async () => {
+  for (const linkedRepo of ['agent-_handoffs', 'agent-handoffs']) {
+    const configuredRepo = linkedRepo === 'agent-_handoffs' ? 'agent-handoffs' : 'agent-_handoffs';
+    const text = row().replace('[Issue](https://github.com/Maverlix777/agent-handoffs/issues/42)', `https://github.com/Maverlix777/${linkedRepo}/issues/42`);
+    let events = 0;
+    const result = await loadBoardSources({...env, BOARD_REPO:`Maverlix777/${configuredRepo}`}, async url => {
+      if (url.includes('/contents/')) return new Response(text);
+      events++;
+      return Response.json([event('cloud:review')]);
+    });
+    assert.equal(events, 0);
+    assert.equal(result.board.cards[0].statusSince, '');
+  }
+  const repo = 'Maverlix777/agent_handoffs';
+  const text = row().replace('[Issue](https://github.com/Maverlix777/agent-handoffs/issues/42)', `https://github.com/${repo}/issues/42`);
+  const result = await loadBoardSources({...env, BOARD_REPO:repo}, async url => {
+    if (url.includes('/contents/')) return new Response(text);
+    assert.ok(url.includes(`/repos/${repo}/issues/42/events?`));
+    return Response.json([event('cloud:review')]);
+  });
+  assert.equal(result.board.cards[0].statusSince, since);
+  assert.equal(result.board.cards[0].statusAgeLabel, 'в статусе 5 дн');
+});
+test('malformed labeled and unlabeled names invalidate history before unrelated-label filtering', async () => {
+  for (const type of ['labeled', 'unlabeled']) {
+    for (const fields of [{}, {label:null}, {label:{}}, {label:{name:null}}, {label:{name:42}}, {label:{name:[]}}, {label:{name:{}}}, {label:{name:''}}]) {
+      const malformed = {event:type, created_at:new Date().toISOString(), ...fields};
+      const result = await loadBoardSources(env, async url => url.includes('/contents/') ? new Response(row()) : Response.json([event('cloud:review'), malformed]));
+      assert.equal(result.board.cards[0].statusSince, '', JSON.stringify(malformed));
+      assert.equal(result.board.cards[0].statusAgeLabel, 'нет данных');
+    }
+  }
+});
