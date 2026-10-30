@@ -4,12 +4,15 @@
   const columns = [['planned', 'Запланировано'], ['progress', 'В работе'], ['review', 'На проверке'], ['done', 'Готово']];
   const dialog = $('task-dialog');
   const drafts = new Map();
-  let cards = []; let sources = []; let items = []; let loading = false; let openKey = null;
+  let cards = []; let sources = []; let items = []; let loading = false; let openKey = null; const answered = new Map();
   let focusBefore = null; let lastRead = null; let outboxAvailable = false; let nextCursor = null;
   let authGeneration = 0; let authInvalid = false; let boardFailure = '';
   const receiptChecks = new Map();
   const deliveryRetries = new Set();
   const cardKey = (card) => card.key || `${card.sourcePath || card.source}::${card.id}`;
+  // Optimistic: an accepted answer moves the card out of "questions" until the source revision changes.
+  function markAnswered(card) { if (card.column === 'questions') { card.column = 'progress'; card.state = `${card.state || ''} · отвечено`.trim(); } }
+  function applyAnswered() { for (const card of cards) if (answered.get(cardKey(card)) === card.sourceRevision) markAnswered(card); }
   function el(tag, className, text) {
     const node = document.createElement(tag);
     if (className) node.className = className;
@@ -220,6 +223,11 @@
     lock(Boolean(draft.payload)); submit.disabled = draft.busy || Boolean(draft.blocked);
     if (draft.payload) { submit.textContent = 'Повторить сохранение'; status.textContent = 'Предыдущая отправка не подтверждена. Повтор использует тот же идентификатор и текст.'; }
     textarea.addEventListener('input', () => { draft.text = textarea.value; });
+    // Enter and Cmd/Ctrl+Enter submit the answer; Shift+Enter keeps a newline. Skip IME composition.
+    if (kind === 'answer') textarea.addEventListener('keydown', (event) => {
+      if (event.key !== 'Enter' || event.shiftKey || event.isComposing) return;
+      event.preventDefault(); form.requestSubmit();
+    });
     form.addEventListener('submit', async (event) => {
       event.preventDefault(); if (draft.busy || authInvalid) return;
       if (!textarea.value.trim()) { textarea.setCustomValidity('Введи текст сообщения.'); textarea.reportValidity(); return; }
@@ -234,6 +242,10 @@
         items = [result.item,...items.filter((item) => item.id !== result.item.id)]; renderOutbox();
         status.className = 'form-status success'; status.textContent = result.item.status === 'synced' && issueReceipt(result.item.receipt) ? 'Сохранено и доставлено в GitHub Issues. Ответ исполнителя и результат проверяются отдельно.' : 'Сохранено в очереди. Доставка в GitHub Issues ещё не подтверждена.';
         draft.text = ''; draft.payload = null; textarea.value = ''; lock(false); submit.textContent = kind === 'answer' ? 'Сохранить ответ' : 'Сохранить сообщение';
+        if (kind === 'answer' && target) {
+          answered.set(key, target.revision);
+          const card = cards.find((c) => cardKey(c) === key); if (card) { markAnswered(card); render(); }
+        }
         if (result.item.status === 'pending') checkReceipt(result.item.id);
       } catch (error) {
         if (authInvalid) return;
@@ -418,7 +430,7 @@
     if (loading || authInvalid) return; loading = true; $('refresh').disabled = true; $('columns').setAttribute('aria-busy','true');
     $('status').textContent = lastRead ? `Обновляем… Последнее чтение: ${date(lastRead)}` : 'Загружаем доску…';
     try {
-      const board = await api('board'); requireActiveSession(); cards = Array.isArray(board.cards) ? board.cards : []; sources = Array.isArray(board.sources) ? board.sources : [];
+      const board = await api('board'); requireActiveSession(); cards = Array.isArray(board.cards) ? board.cards : []; applyAnswered(); sources = Array.isArray(board.sources) ? board.sources : [];
       lastRead = new Date().toISOString(); boardFailure = '';
       $('status').className = 'status'; $('status').textContent = `Карточек: ${cards.length}. Прочитано: ${date(lastRead)}${board.unmappedCount ? `. Не распознано строк: ${board.unmappedCount}` : ''}`;
       render(); renderTelemetry(board.telemetry); restoreHistory();
