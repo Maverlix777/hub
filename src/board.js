@@ -57,7 +57,7 @@ function detail(card, metadata, raw, line) {
   return { ...card, key: `${sourcePath || card.source}::${card.id}`, owner: card.who,
     sourcePath, sourceRevision: metadata.revision || '', sourceUrl: metadata.url || '', provenance: metadata.provenance || '', line,
     description: plain(raw), history: [], evidence: links(raw, metadata.url),
-    statusSince: parseStatusSince(card.state), blockers: /^blocked|^needs.owner/i.test(card.state) ? [plain(raw)] : [],
+    statusSince: '', blockers: /^blocked|^needs.owner/i.test(card.state) ? [plain(raw)] : [],
   };
 }
 export function parseBoard(text, source = 'board', metadata = {}) {
