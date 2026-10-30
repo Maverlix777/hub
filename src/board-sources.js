@@ -1,5 +1,5 @@
 import { Buffer } from 'node:buffer';
-import { buildBoard } from './board.js';
+import { buildBoard, statusAgeLabel } from './board.js';
 const REPO = /^[A-Za-z0-9_.-]+\/[A-Za-z0-9_.-]+$/;
 const PATH = /^[A-Za-z0-9_./-]+\.md$/;
 export const DEFAULT_BOARD_PATHS = Object.freeze(['proposals/ai-factory-jobforge/BOARD.md', 'proposals/site-kolobovdjp/BOARD.md']);
@@ -39,6 +39,70 @@ async function blobRevision(text) {
   const input = new Uint8Array(prefix.length + body.length); input.set(prefix); input.set(body, prefix.length);
   return Buffer.from(await crypto.subtle.digest('SHA-1', input)).toString('hex');
 }
+// Only explicit same-repository Issue links identify a task; PRs and task IDs are not Issues.
+function issueForCard(card, repo) {
+  const numbers = new Set();
+  for (const match of card.description.matchAll(/https:\/\/github\.com\/([^/]+\/[^/]+)\/issues\/([1-9]\d*)(?=$|[\s)#?])/g)) {
+    if (match[1].toLowerCase() === repo.toLowerCase()) numbers.add(match[2]);
+  }
+  for (const link of card.evidence) {
+    const url = new URL(link.url);
+    const match = /^\/([^/]+\/[^/]+)\/issues\/([1-9]\d*)\/?$/.exec(url.pathname);
+    if (url.hostname === 'github.com' && match?.[1].toLowerCase() === repo.toLowerCase()) numbers.add(match[2]);
+  }
+  return numbers.size === 1 ? [...numbers][0] : '';
+}
+const STATUS_LABELS = Object.freeze({
+  'cloud:running': 'progress', 'cloud:review': 'review', 'cloud:ready': 'planned',
+  'cloud:done': 'done', 'cloud:blocked': 'progress',
+  claimed: 'progress', changes: 'progress', 'in-progress': 'progress', progress: 'progress',
+  review: 'review', ready: 'planned', planned: 'planned', done: 'done', blocked: 'progress',
+  'needs-owner': 'questions', idea: 'ideas',
+});
+async function labelStatus(env, repo, number, fetchImpl, signal) {
+  const active = new Map();
+  try {
+    // Bounded complete history. A truncated history must never claim a current age.
+    for (let page = 1; page <= 5; page++) {
+      const response = await fetchImpl(`https://api.github.com/repos/${repo}/issues/${number}/events?per_page=100&page=${page}`, {
+        headers: {accept: 'application/vnd.github+json', authorization: `Bearer ${env.BOARD_GITHUB_TOKEN}`, 'user-agent': 'hub-board', 'x-github-api-version': '2022-11-28'},
+        redirect: 'manual', signal,
+      });
+      let events;
+      try {
+        if (!response.ok || response.redirected) return null;
+        events = JSON.parse(await boundedText(response));
+      } finally { if (response.body && !response.body.locked) await response.body.cancel().catch(() => {}); }
+      if (!Array.isArray(events)) return null;
+      for (const event of events) {
+        const label = event?.label?.name?.toLowerCase();
+        if (!Object.hasOwn(STATUS_LABELS, label) || !['labeled', 'unlabeled'].includes(event.event)) continue;
+        const time = Date.parse(event.created_at);
+        if (!Number.isFinite(time) || time > Date.now() + 5 * 60000) return null;
+        const previous = active.get(label);
+        if (!previous || time >= previous.time) active.set(label, {time, since: event.created_at, column: STATUS_LABELS[label], active: event.event === 'labeled'});
+      }
+      if (events.length < 100) return [...active.values()].filter(s => s.active).sort((a, b) => b.time - a.time)[0] || null;
+    }
+  } catch { /* Optional event data cannot make the Markdown board unavailable. */ }
+  return null;
+}
+async function addStatusAges(board, env, repo, fetchImpl) {
+  const candidates = board.cards.filter(c => ['progress', 'review'].includes(c.column));
+  const issues = [...new Set(candidates.map(c => issueForCard(c, repo)).filter(Boolean))];
+  const statuses = new Map();
+  // Sequential reads bound upstream concurrency and fan-out independently of board size.
+  const signal = AbortSignal.timeout(10000);
+  for (const number of issues.slice(0, 20)) {
+    if (signal.aborted) break;
+    statuses.set(number, await labelStatus(env, repo, number, fetchImpl, signal));
+  }
+  for (const card of candidates) {
+    const status = statuses.get(issueForCard(card, repo));
+    card.statusSince = status?.column === card.column ? status.since : '';
+    card.statusAgeLabel = statusAgeLabel(card.statusSince);
+  }
+}
 export async function loadBoardSources(env, fetchImpl = fetch) {
   const repo = env.BOARD_REPO || 'Maverlix777/agent-handoffs'; const sources = descriptors(env);
   if (!env.BOARD_GITHUB_TOKEN || !REPO.test(repo) || !sources.length || sources.length > 20 || sources.some(s => !PATH.test(s.path) || s.path.includes('..'))) return {error: 'board_unavailable'};
@@ -70,6 +134,7 @@ export async function loadBoardSources(env, fetchImpl = fetch) {
     } finally { if (response?.body && !response.body.locked) await response.body.cancel().catch(() => {}); }
   }));
   const board = buildBoard(loaded);
+  await addStatusAges(board, env, repo, fetchImpl);
   board.sources = board.sources.map((s, index) => ({...s, provenance: loaded[index].provenance}));
   return {board: {...board, fetchedAt: new Date().toISOString()}};
 }
