@@ -125,5 +125,8 @@ jobs:
         run: npx wrangler deploy --keep-vars --config wrangler.production.local.jsonc
       - name: Smoke-check security headers on the live route
         run: |
-          curl -sSI --max-time 20 https://kolobovdjp.org/hub/style.css | tr -d '\r' | tee "$RUNNER_TEMP/headers.txt"
+          ORIGIN="$(grep -o '"CANONICAL_ORIGIN": *"[^"]*"' wrangler.jsonc | head -n1 | sed 's/.*: *"\(.*\)"/\1/')"
+          ORIGIN="${ORIGIN:-https://hub.kolobovdjp.org}"
+          echo "smoke-check origin: $ORIGIN"
+          curl -sSI --max-time 20 "${ORIGIN}/hub/style.css" | tr -d '\r' | tee "$RUNNER_TEMP/headers.txt"
           grep -qi '^referrer-policy: no-referrer' "$RUNNER_TEMP/headers.txt"
