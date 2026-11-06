@@ -1,0 +1,78 @@
+name: Worker routes
+
+# Manual only. Lists Workers routes of a zone (pattern + script) and, when
+# `add_pattern` and `script` are set, adds that one route. No code is deployed.
+# Needs repository secret CLOUDFLARE_API_TOKEN. Response bodies are printed only
+# as pattern/script/status; the token is never printed.
+
+on:
+  workflow_dispatch:
+    inputs:
+      zone:
+        description: Zone name
+        type: string
+        default: kolobovdjp.org
+      add_pattern:
+        description: 'Optional route to add, e.g. kolobovdjp.org/doktor/*'
+        type: string
+        default: ''
+      script:
+        description: Worker script name for add_pattern
+        type: string
+        default: ''
+
+permissions:
+  contents: read
+
+concurrency:
+  group: worker-routes
+  cancel-in-progress: false
+
+jobs:
+  routes:
+    if: github.repository == 'Maverlix777/hub'
+    runs-on: ubuntu-24.04
+    timeout-minutes: 5
+    steps:
+      - name: List and optionally add route
+        env:
+          CF_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+          ZONE: ${{ inputs.zone }}
+          ADD_PATTERN: ${{ inputs.add_pattern }}
+          SCRIPT: ${{ inputs.script }}
+        run: |
+          python3 - <<'PY'
+          import json, os, re, urllib.request, urllib.error, urllib.parse
+          tok = os.environ["CF_TOKEN"]
+          def call(method, path, body=None):
+              req = urllib.request.Request("https://api.cloudflare.com/client/v4" + path, method=method,
+                  data=json.dumps(body).encode() if body is not None else None,
+                  headers={"Authorization": "Bearer " + tok, "Content-Type": "application/json"})
+              try:
+                  with urllib.request.urlopen(req, timeout=30) as r:
+                      return r.status, json.load(r)
+              except urllib.error.HTTPError as e:
+                  try: data = json.load(e)
+                  except Exception: data = {}
+                  return e.code, data
+          zone = os.environ["ZONE"]
+          assert re.fullmatch(r"[a-z0-9.-]+", zone)
+          st, d = call("GET", "/zones?name=" + urllib.parse.quote(zone))
+          print("GET zones status:", st)
+          zs = d.get("result") or []
+          if not zs: raise SystemExit("zone not found or no access: " + str([e.get("code") for e in d.get("errors", [])]))
+          zid = zs[0]["id"]
+          def show():
+              st, d = call("GET", f"/zones/{zid}/workers/routes")
+              print("GET routes status:", st, [e.get("code") for e in d.get("errors", [])])
+              for r in d.get("result") or []: print("route:", r.get("pattern"), "->", r.get("script"))
+              return st
+          if show() != 200: raise SystemExit(1)
+          pat, scr = os.environ["ADD_PATTERN"].strip(), os.environ["SCRIPT"].strip()
+          if pat or scr:
+              assert re.fullmatch(r"[A-Za-z0-9.*/_-]+", pat) and re.fullmatch(r"[A-Za-z0-9_-]+", scr), "bad inputs"
+              st, d = call("POST", f"/zones/{zid}/workers/routes", {"pattern": pat, "script": scr})
+              print("POST route status:", st, [e.get("code") for e in d.get("errors", [])], [e.get("message") for e in d.get("errors", [])])
+              show()
+              if st >= 300: raise SystemExit(1)
+          PY
