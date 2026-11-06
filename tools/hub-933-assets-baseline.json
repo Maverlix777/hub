@@ -1,0 +1,130 @@
+{
+  "/apps/board.css": {
+    "sha256": "c13f0b353a0fba2d5bdc806eec08a399cf7dc66a6cf88d200ed5b150e9e431fe",
+    "size": 9102
+  },
+  "/apps/board.html": {
+    "sha256": "e3f816deeb8d8b8e6abd6d1409b30b6e63ab364dfa70818acc8c3b4ee4c0d824",
+    "size": 7366
+  },
+  "/apps/board.js": {
+    "sha256": "20b26073de0fd83a7a023ff928a45da83377ffc9d0cc891f3bdb5ea18073d98b",
+    "size": 39142
+  },
+  "/apps/chat.css": {
+    "sha256": "b52e0d18f78b600ef89af7e49c68b3579687c7664ae70a913edec086e840aced",
+    "size": 1493
+  },
+  "/apps/chat.html": {
+    "sha256": "cdb12df91b456dda284dc7d39eb3b62bafeeb7c1166cd03121b7f6c8d9f88e7b",
+    "size": 3848
+  },
+  "/apps/chat.js": {
+    "sha256": "85e402151a93299385b551df06703a06e266d282a0a467f71e219dee14286f87",
+    "size": 14879
+  },
+  "/apps/downloads.css": {
+    "sha256": "b1a89b32df6e91bdd80085e927c2f4e715273233789e513dc59464e2e7d6650c",
+    "size": 866
+  },
+  "/apps/downloads.html": {
+    "sha256": "bfe6f41f03b152ba1a67aacba67ed9fdc9a7ab4f0d25625e2ac8e0eef171e2cd",
+    "size": 25198
+  },
+  "/apps/downloads.js": {
+    "sha256": "382df9ce08c9498aea99db967b66863fda040f707f4326e6a96d79e205066a3f",
+    "size": 2096
+  },
+  "/apps/messenger.css": {
+    "sha256": "77c25f637926d267da99bd542f1fb339f135556626f5fe0c9bd6d89e936802fe",
+    "size": 1412
+  },
+  "/apps/messenger.html": {
+    "sha256": "8eeda3bc708b199e9ff21be8e623f5a38f61b09f705ec5a884a99629c4c36ad0",
+    "size": 2774
+  },
+  "/apps/messenger.js": {
+    "sha256": "5573d9d681a6b51935f6a7789963b1ca53b508498f94665c5995e8aa390a7e73",
+    "size": 4439
+  },
+  "/doktor/blog/first-post.html": {
+    "sha256": "d1c7c9dd802b0af83962811bcdb923ab0615900271aeb2bad7626b42e4306cbe",
+    "size": 1712
+  },
+  "/doktor/blog/index.html": {
+    "sha256": "45ff9f3c96e38c816cd0698a982ff16493d0a0fca61c72ef2f3885e30913697f",
+    "size": 1471
+  },
+  "/doktor/downloads/index.html": {
+    "sha256": "7cfd082b8f40d5672d04e22536ada33705729c004f1d9a8c96422117580e0f0a",
+    "size": 1741
+  },
+  "/doktor/index.html": {
+    "sha256": "025ef15e7406dd7b2153895f2179b722e146433ce3902a468fa5d8704fb8ba16",
+    "size": 5970
+  },
+  "/doktor/privacy.html": {
+    "sha256": "56a7afab94bfce19fa3617a4295f175b3fae0ac1c1056bb8bd99f39b8d754504",
+    "size": 2861
+  },
+  "/doktor/style.css": {
+    "sha256": "badfd0b6e9d9aabb9655693bd318dde7def9ede41a2577257a2d7f6c56bb755f",
+    "size": 1420
+  },
+  "/doktor/support.html": {
+    "sha256": "4f8a016a530faf3393c59c7ddf5b0a48152af1d2aeaa5174923c9cf097e0860d",
+    "size": 926
+  },
+  "/doktor/terms.html": {
+    "sha256": "6a25986910869cca5c9af6249224e7e9e00a753d63245da9d238a3ca4742594d",
+    "size": 3779
+  },
+  "/hub.js": {
+    "sha256": "b280130d4514295af81d050dcce1f89c33bfe8f986a84aad1324e6fb6a69ce13",
+    "size": 6276
+  },
+  "/icons/icon-180.png": {
+    "sha256": "01b1645ec37ff2cfb430adf450cb9da7cd5f4e98de088e61f2a8a84e52581390",
+    "size": 3735
+  },
+  "/icons/icon-192.png": {
+    "sha256": "aeaa61a48db678724ccab80686f3046e62920a0455638518b45190d88e4628a3",
+    "size": 3806
+  },
+  "/icons/icon-512.png": {
+    "sha256": "0f94bba33fb784e22a4d5af1d7725fb4d8190c94ac61a49d117033508eab3e24",
+    "size": 10503
+  },
+  "/index.html": {
+    "sha256": "7d82a919af49a6775f6894e02057c8ff72efb0f984c052adebeaaa2afa6e53d2",
+    "size": 3718
+  },
+  "/login.css": {
+    "sha256": "a369f9700371d8e7427139957e9e2cb6798448b096f6f75a3bc380f7667c9736",
+    "size": 1188
+  },
+  "/login.html": {
+    "sha256": "1e6491efc054decc0dafe0eaa8e84e660744895525e63c616302155e8dda71a3",
+    "size": 2869
+  },
+  "/login.js": {
+    "sha256": "806194785518ff75d29636b2c9afe27fd925344970ebdfea9a65eed2c8981512",
+    "size": 5339
+  },
+  "/manifest.webmanifest": {
+    "sha256": "3c66708b25cfb4a9363dc8dcfc09779e9039a6aa3ccb261e1a620f225c74d88a",
+    "size": 570
+  },
+  "/push-sw.js": {
+    "sha256": "5bf0d4201e601f157ac7b5fd20c2c2c4034ccdead01a43c129e1635e19cd2f84",
+    "size": 1037
+  },
+  "/push.js": {
+    "sha256": "df21654a4236aee5114c458cd94151f97b749373f768993047c800064fdf595d",
+    "size": 6555
+  },
+  "/style.css": {
+    "sha256": "8d2b21615b551b948601862af85f5acfcaea3e4ee2f2a827a70d325fef5d584f",
+    "size": 5391
+  }
+}

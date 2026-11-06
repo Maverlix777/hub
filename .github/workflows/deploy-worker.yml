@@ -23,6 +23,18 @@ name: Deploy Worker
 on:
   workflow_dispatch:
     inputs:
+      prepare_only_933:
+        description: Offline #933 asset/config contract only; cannot upload or activate
+        type: boolean
+        default: false
+      stage_inactive_933:
+        description: Stage exact reviewed #933 assets as an INACTIVE version; no activation
+        type: boolean
+        default: false
+      reviewed_sha:
+        description: Exact approved #933 merged source SHA
+        type: string
+        default: ''
       apply_migrations:
         description: Apply D1 migrations (hub-auth, remote) before deploying
         type: boolean
@@ -45,7 +57,120 @@ concurrency:
   cancel-in-progress: false
 
 jobs:
+  prepare-only-933:
+    if: ${{ inputs.prepare_only_933 && !inputs.stage_inactive_933 }}
+    runs-on: ubuntu-24.04
+    permissions:
+      contents: read
+    steps:
+      - name: Require preparation-only scope and operational branch
+        env:
+          CONFIRM: ${{ inputs.confirm }}
+          REVIEWED_SHA: ${{ inputs.reviewed_sha }}
+        run: |
+          test "$GITHUB_REF" = refs/heads/zhanna/933-assets-only-deploy
+          test "$CONFIRM" = 'PREPARE #933 OFFLINE ONLY'
+          [[ "$REVIEWED_SHA" =~ ^[0-9a-f]{40}$ ]]
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          ref: ${{ github.sha }}
+          path: operations
+          fetch-depth: 0
+          persist-credentials: false
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          ref: ${{ inputs.reviewed_sha }}
+          path: runtime
+          persist-credentials: false
+      - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
+        with:
+          node-version: 22
+          cache: npm
+          cache-dependency-path: operations/package-lock.json
+      - name: Install locked uploader and test offline guards
+        working-directory: operations
+        env:
+          WRANGLER_SEND_METRICS: 'false'
+          PYTHONDONTWRITEBYTECODE: '1'
+        run: |
+          npm ci
+          python3 tests/hub-933-assets-prepare-test.py -v
+          python3 tests/hub-933-direct-candidate-test.py -v
+          python3 tests/hub-933-stage-runner-test.py -v
+      - name: Prove32-asset staging and actual no-bundle multipart offline
+        working-directory: operations
+        env:
+          WRANGLER_SEND_METRICS: 'false'
+          PYTHONDONTWRITEBYTECODE: '1'
+          REVIEWED_SHA: ${{ inputs.reviewed_sha }}
+        run: python3 tools/hub-933-assets-prepare.py --offline-runtime-repo ../runtime --reviewed-sha "$REVIEWED_SHA" --out "$RUNNER_TEMP/hub-933-offline"
+  stage-inactive-933:
+    if: ${{ inputs.stage_inactive_933 && !inputs.prepare_only_933 }}
+    runs-on: ubuntu-24.04
+    environment: production
+    permissions:
+      contents: read
+      pull-requests: read
+    steps:
+      - name: Require exact inactive staging scope and approved source
+        env:
+          CONFIRM: ${{ inputs.confirm }}
+          REVIEWED_SHA: ${{ inputs.reviewed_sha }}
+          APPLY_MIGRATIONS: ${{ inputs.apply_migrations }}
+          ROUTES: ${{ inputs.routes }}
+        run: |
+          test "$GITHUB_REF" = refs/heads/zhanna/933-assets-only-deploy
+          test "$CONFIRM" = 'STAGE #933 INACTIVE ONLY'
+          test "$REVIEWED_SHA" = 78546f13bc99401fc6f4acc11a175befcd61b933
+          test "$APPLY_MIGRATIONS" = false
+          test -z "$ROUTES"
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          ref: ${{ github.sha }}
+          path: operations
+          fetch-depth: 0
+          persist-credentials: false
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          ref: ${{ inputs.reviewed_sha }}
+          path: runtime
+          persist-credentials: false
+      - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
+        with:
+          node-version: 22
+          cache: npm
+          cache-dependency-path: operations/package-lock.json
+      - name: Install locked builder and exercise offline safety guards
+        working-directory: operations
+        env:
+          WRANGLER_SEND_METRICS: 'false'
+          PYTHONDONTWRITEBYTECODE: '1'
+        run: |
+          npm ci
+          python3 tests/hub-933-assets-prepare-test.py -v
+          python3 tests/hub-933-direct-candidate-test.py -v
+          python3 tests/hub-933-stage-runner-test.py -v
+      - name: Stage single inactive candidate with exact live snapshot guards
+        working-directory: operations
+        env:
+          GITHUB_TOKEN: ${{ github.token }}
+          CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+          CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+          HUB_933_CONFIRM: ${{ inputs.confirm }}
+          HUB_933_REVIEWED_SHA: ${{ inputs.reviewed_sha }}
+          WRANGLER_SEND_METRICS: 'false'
+          PYTHONDONTWRITEBYTECODE: '1'
+        run: python3 tools/hub-933-stage-runner.py --runtime-repo ../runtime --summary "$RUNNER_TEMP/hub-933-redacted-summary.json"
+      - name: Upload only redacted candidate summary
+        if: ${{ always() }}
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: hub-933-redacted-candidate-summary
+          path: ${{ runner.temp }}/hub-933-redacted-summary.json
+          if-no-files-found: ignore
+          retention-days: 7
   deploy:
+    if: ${{ !inputs.prepare_only_933 && !inputs.stage_inactive_933 && inputs.confirm == 'OVERWRITE PRIVATE PRODUCTION BUILD' }}
     runs-on: ubuntu-latest
     environment: production
     steps:
