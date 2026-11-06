@@ -12,6 +12,17 @@ const card=(id,column,title)=>({id,key:'fixture::'+id,title,column,state:column=
 const cards=[card('QA-1','planned','Short synthetic task'),card('QA-2','planned','Long synthetic task '+('layout boundary '.repeat(18))),card('QA-3','progress','Synthetic work'),card('QA-4','review','Synthetic review'),card('QA-5','done','Synthetic done'),card('QA-6','questions','Synthetic owner question'),card('QA-7','ideas','Synthetic idea')];
 const board={cards,sources:[{path:'fixtures/BOARD.md',status:'available',cardCount:cards.length}],telemetry:{status:'unknown',reason:'stale'}};
 const session={username:'synthetic-owner',entitlement:'paid',apps:['board','chat','downloads'],locked:[]};
+// Keep a rejecting timer alive until both test-owned resources finish closing;
+// otherwise Node can exit with an unresolved cleanup promise and hide a failure.
+async function closeTestResources(browser, server) {
+  let timer;
+  try {
+    await Promise.race([
+      Promise.all([browser ? browser.close() : Promise.resolve(), new Promise((resolve, reject) => server.close((error) => error ? reject(error) : resolve()))]),
+      new Promise((_, reject) => { timer = setTimeout(() => reject(new Error('Browser test cleanup timed out after 10000ms')), 10000); }),
+    ]);
+  } finally { clearTimeout(timer); }
+}
 (async()=>{
  const server=http.createServer((req,res)=>{
   let pathname=new URL(req.url,'http://localhost').pathname;
@@ -21,7 +32,7 @@ const session={username:'synthetic-owner',entitlement:'paid',apps:['board','chat
   if(!filename.startsWith(root+path.sep)||!fs.existsSync(filename)||!fs.statSync(filename).isFile()){res.writeHead(404);return void res.end();}
   res.setHeader('Content-Type',filename.endsWith('.css')?'text/css':filename.endsWith('.js')?'text/javascript':'text/html');res.end(fs.readFileSync(filename));
  });
- await new Promise(resolve=>server.listen(0,'127.0.0.1',resolve));let browser;
+ await new Promise(resolve=>server.listen(0,'127.0.0.1',resolve));let browser;let testError;
  try{
   const executablePath=process.env.HUB_BROWSER||(process.platform==='win32'&&fs.existsSync('C:/Program Files (x86)/Microsoft/Edge/Application/msedge.exe')?'C:/Program Files (x86)/Microsoft/Edge/Application/msedge.exe':undefined);
   browser=await chromium.launch({headless:true,...(executablePath?{executablePath}:{})});
@@ -41,7 +52,7 @@ const session={username:'synthetic-owner',entitlement:'paid',apps:['board','chat
   });
   fs.mkdirSync(artifactDir,{recursive:true});
   for(const width of [320,390,768,1280]){
-   await page.setViewportSize({width,height:900});await page.goto(base+'/hub/');await page.locator('button.card[data-card-key="fixture::QA-1"]').waitFor();
+   await page.setViewportSize({width,height:900});await page.goto(base+'/hub/');await page.locator('#columns .col-toggle').first().waitFor();
    await page.screenshot({path:path.join(artifactDir,`dashboard-first-${width}.png`),fullPage:true});
    const overflow=await page.evaluate(()=>({width:innerWidth,scroll:document.documentElement.scrollWidth,nodes:[...document.querySelectorAll('body *')].filter(n=>n.getBoundingClientRect().right>innerWidth+1).slice(0,12).map(n=>({tag:n.tagName,id:n.id,class:n.className,right:n.getBoundingClientRect().right}))}));
    assert.ok(overflow.scroll<=overflow.width,`overflow at ${width}: ${JSON.stringify(overflow)}`);
@@ -73,7 +84,8 @@ const session={username:'synthetic-owner',entitlement:'paid',apps:['board','chat
    if(route==='/hub/')await page.screenshot({path:path.join(artifactDir,'dashboard-first-scaled-nav-320.png'),fullPage:false});
   }
   await page.setViewportSize({width:1280,height:900});
-  await page.goto(base+'/hub/');await page.locator('#columns button.card').first().waitFor();
+  await page.goto(base+'/hub/');await page.locator('#columns .col-toggle').first().waitFor();
+  await page.locator('.col-toggle[data-col="planned"]').click();
   const opener=page.locator('button.card[data-card-key="fixture::QA-1"]');await opener.focus();await page.keyboard.press('Enter');
   await page.locator('#task-dialog[open]').waitFor();assert.equal(await page.locator('#detail-content img').count(),0);
   await page.keyboard.press('Shift+Tab');assert.equal(await page.evaluate(()=>document.querySelector('#task-dialog').contains(document.activeElement)),true);
@@ -81,7 +93,7 @@ const session={username:'synthetic-owner',entitlement:'paid',apps:['board','chat
   await opener.click();await page.goBack();await page.waitForFunction(()=>!document.querySelector('#task-dialog').open);
   await page.locator('#q').fill('Short synthetic');assert.equal(await page.locator('#columns button.card').count(),1);await page.locator('#q').fill('');
   await page.locator('#message-text').fill('Synthetic QA message');await page.locator('#message-form button[type=submit]').click();await page.locator('#outbox-list .outbox-entry').waitFor();
-  await page.goto(base+'/hub/apps/board.html');await page.locator('#columns button.card').first().waitFor();
+  await page.goto(base+'/hub/apps/board.html');await page.locator('#columns .col-toggle').first().waitFor();
   const catalog=page.locator('a[href="/hub/index.html"]');assert.ok(await catalog.count()>0,'explicit catalog navigation');await catalog.first().click();await page.waitForURL('**/hub/index.html');
   await page.locator('#grid a[data-id="downloads"]').waitFor();
   for(const id of ['chat','doktor'])assert.equal(await page.locator(`#grid [data-id="${id}"]`).count(),0,`removed catalog tile ${id}`);
@@ -93,7 +105,7 @@ const session={username:'synthetic-owner',entitlement:'paid',apps:['board','chat
   assert.ok(await doktor.count()>0,'Doktor retained in downloads');
   assert.ok(await doktor.locator('a.btn[href^="https://"]').count()>0,'Doktor download remains actionable');
   await page.locator('#q').fill('no-match-synthetic-qa-999');assert.equal(await page.locator('#list a[href^="https://"]').count(),0);await page.locator('#q').fill('');
-  await page.locator('#nav-board').click();await page.waitForURL(base+'/hub/');await page.locator('#columns button.card').first().waitFor();
+  await page.locator('#nav-board').click();await page.waitForURL(base+'/hub/');await page.locator('#columns .col-toggle').first().waitFor();
   const filtered=await browser.newPage();
   await filtered.route('**/hub/api/**',route=>route.fulfill({json:route.request().url().endsWith('/session')?{...session,apps:['board','downloads'],locked:['location-fusion','doktor']}:route.request().url().endsWith('/board')?board:{items:[],delivery:{status:'not_configured'}}}));
   await filtered.goto(base+'/hub/index.html');await filtered.locator('#account-name').filter({hasText:session.username}).waitFor();
@@ -125,10 +137,11 @@ const session={username:'synthetic-owner',entitlement:'paid',apps:['board','chat
   assert.equal(await race.locator('#message-text').isDisabled(),true);
   await heldLogout.fulfill({json:{ok:true}});await race.waitForURL('**/hub/login/');await race.close();
   }
-  await page.goto(base+'/hub/');await page.locator('#columns button.card').first().waitFor();
+  await page.goto(base+'/hub/');await page.locator('#columns .col-toggle').first().waitFor();
   const otherTab=await page.context().newPage();await otherTab.goto(base+'/hub/login/');
   await otherTab.evaluate(()=>localStorage.setItem('hub.session.logout',String(Date.now())));
   await page.waitForURL('**/hub/login/');await otherTab.close();
   assert.deepEqual(failures,[]);console.log('PASS dashboard viewport/card geometry, root/legacy/catalog links, modal keyboard/Back/Escape/focus, literal XSS, search, menu cleanup/Doktor downloads, app filters and logout before delayed private response; synthetic frontend API only.');
- }finally{if(browser)await browser.close();await new Promise(resolve=>server.close(resolve));}
+ }catch(error){testError=error;}finally{try{await closeTestResources(browser,server);}catch(error){testError=testError?new AggregateError([testError,error],'Assertions and cleanup failed'):error;}}
+ if(testError)throw testError;
 })().catch(e=>{console.error(e);process.exitCode=1;});

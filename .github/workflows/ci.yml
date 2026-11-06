@@ -47,6 +47,8 @@ jobs:
         run: npx playwright install --with-deps chromium
       - name: Check interactive board browser contract
         run: node tests/board-ui-contract.cjs
+      - name: Check default column collapse and floating message panel
+        run: node tests/board-collapse.cjs
       - name: Check Hub browser against actual Worker and SQLite
         run: node --experimental-sqlite tests/hub-acceptance-browser.cjs
       - name: Check persisted pending recovery through existing delivery API

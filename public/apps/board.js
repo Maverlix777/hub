@@ -45,12 +45,18 @@
   }
   const COLLAPSE_KEY = 'hub.board.collapsed';
   function readCollapsed() {
-    try { const value = JSON.parse(localStorage.getItem(COLLAPSE_KEY) || '[]'); return new Set(Array.isArray(value) ? value.filter((k) => typeof k === 'string') : []); } catch { return new Set(); }
+    const keys = columns.map(([key]) => key);
+    try {
+      const stored = localStorage.getItem(COLLAPSE_KEY);
+      if (stored === null) return new Set(keys);
+      const value = JSON.parse(stored);
+      return new Set(Array.isArray(value) && value.every((key) => keys.includes(key)) ? value : keys);
+    } catch { return new Set(keys); }
   }
+  const collapsed = readCollapsed();
   function toggleColumn(key) {
-    const set = readCollapsed();
-    if (set.has(key)) set.delete(key); else set.add(key);
-    try { localStorage.setItem(COLLAPSE_KEY, JSON.stringify([...set])); } catch { /* storage may be blocked */ }
+    if (collapsed.has(key)) collapsed.delete(key); else collapsed.add(key);
+    try { localStorage.setItem(COLLAPSE_KEY, JSON.stringify([...collapsed])); } catch { /* keep the current page usable without storage */ }
     render();
     const again = document.querySelector(`.col-toggle[data-col="${key}"]`); if (again) again.focus();
   }
@@ -68,7 +74,6 @@
     const query = $('q').value.trim().toLowerCase();
     const shown = cards.filter((card) => !query || `${card.id} ${card.title} ${card.owner || card.who} ${card.state} ${card.description || ''}`.toLowerCase().includes(query));
     $('columns').replaceChildren();
-    const collapsed = readCollapsed();
     for (const [key, label] of columns) {
       const rows = shown.filter((card) => card.column === key);
       const isCollapsed = collapsed.has(key);
@@ -159,7 +164,8 @@
     dialog.close(); document.body.classList.remove('modal-open');
     const previousKey = openKey; openKey = null;
     const target = focusBefore?.isConnected ? focusBefore : [...document.querySelectorAll('[data-card-key]')].find((node) => node.dataset.cardKey === previousKey);
-    if (target) target.focus();
+    const focusTarget = target?.closest('ul[hidden]') ? target.closest('.col')?.querySelector('.col-toggle') : target;
+    if (focusTarget) focusTarget.focus();
   }
   function restoreHistory() {
     const key = history.state?.hubTask;
