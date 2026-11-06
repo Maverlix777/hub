@@ -8,6 +8,13 @@ const http = require('node:http');
 const session = { username: 'synthetic-owner', apps: ['board'], locked: [] };
 const mk = (id, column, extra = {}) => ({ key: `f::${id}`, id, title: `Task ${id}`, source: 'S', column, state: 'x', owner: 'o', sourcePath: 'a.md', sourceRevision: 'a'.repeat(40), ...extra });
 (async () => {
+  const { loadBoardSources } = await import('../src/board-sources.js');
+  const fiveDaysAgo = new Date(Date.now() - 5 * 86400000).toISOString();
+  const { board: fixtureBoard } = await loadBoardSources({ BOARD_GITHUB_TOKEN: 'synthetic', BOARD_PATHS: 'fixtures/BOARD.md', BOARD_IDEA_PATHS: '' }, async (url) => {
+    if (url.includes('/contents/')) return new Response('| ID | Task | State | Evidence |\n|---|---|---|---|\n| T-5 | Task T-5 | Review 2020-01-01 | [Issue](https://github.com/Maverlix777/agent-handoffs/issues/42) |');
+    assert.equal(url, 'https://api.github.com/repos/Maverlix777/agent-handoffs/issues/42/events?per_page=100&page=1');
+    return Response.json([{ event: 'labeled', label: { name: 'cloud:review' }, created_at: fiveDaysAgo }, { event: 'commented', created_at: new Date().toISOString() }]);
+  });
   const root = path.resolve(__dirname, '../public');
   const server = http.createServer((req, res) => {
     const file = path.resolve(root, '.' + new URL(req.url, 'http://localhost').pathname.replace(/^\/hub/, ''));
@@ -27,8 +34,8 @@ const mk = (id, column, extra = {}) => ({ key: `f::${id}`, id, title: `Task ${id
       if (url.pathname.endsWith('/session')) return route.fulfill({ json: session });
       if (url.pathname.endsWith('/board')) {
         if (boardMode === 'fail') return route.fulfill({ status: 503, json: { error: 'board_unavailable' } });
-        return route.fulfill({ json: { cards: [mk('T-1', 'planned'), mk('T-2', 'progress', { statusAgeLabel: 'в статусе 5 ч' }), mk('T-3', 'progress'), mk('T-4', 'review', { statusAgeLabel: 'нет данных' })],
-          sources: boardMode === 'srcerr' ? [{ name: 'src', path: 'a.md', status: 'error', error: 'http_403', cardCount: 0 }] : [{ name: 'src', path: 'a.md', status: 'available', cardCount: 4 }] } });
+        return route.fulfill({ json: { cards: [mk('T-1', 'planned'), mk('T-2', 'progress', { statusAgeLabel: 'в статусе 5 ч' }), mk('T-3', 'progress'), mk('T-4', 'review', { statusAgeLabel: 'нет данных' }), ...fixtureBoard.cards],
+          sources: boardMode === 'srcerr' ? [{ name: 'src', path: 'a.md', status: 'error', error: 'http_403', cardCount: 0 }] : [{ name: 'src', path: 'a.md', status: 'available', cardCount: 5 }] } });
       }
       if (req.method() === 'GET') return route.fulfill({ json: { items: [], delivery: { status: 'not_configured' } } });
       posts.push(req.postDataJSON());
@@ -37,7 +44,7 @@ const mk = (id, column, extra = {}) => ({ key: `f::${id}`, id, title: `Task ${id
     await page.goto(base + '/hub/apps/board.html'); await page.locator('#columns button.card').first().waitFor();
     // T1: counts equal real cards, headings are buttons with aria-expanded
     const counts = await page.locator('.col').evaluateAll((cols) => cols.map((c) => [c.querySelector('.col-toggle').getAttribute('aria-expanded'), c.querySelector('.count').textContent, c.querySelectorAll('button.card').length]));
-    assert.deepEqual(counts, [['true', '1', 1], ['true', '2', 2], ['true', '1', 1], ['true', '0', 0]]);
+    assert.deepEqual(counts, [['true', '1', 1], ['true', '2', 2], ['true', '2', 2], ['true', '0', 0]]);
     await page.locator('.col-toggle[data-col="progress"]').click();
     assert.equal(await page.locator('.col-toggle[data-col="progress"]').getAttribute('aria-expanded'), 'false');
     assert.equal(await page.locator('#col-progress').isHidden(), true);
@@ -52,6 +59,10 @@ const mk = (id, column, extra = {}) => ({ key: `f::${id}`, id, title: `Task ${id
     await page.locator('#close-detail').click();
     await page.locator('button.card', { hasText: 'Task T-4' }).click();
     assert.match(await page.locator('#detail-content').textContent(), /нет данных/);
+    await page.locator('#close-detail').click();
+    await page.locator('#col-review button.card', { hasText: 'Task T-5' }).click();
+    assert.equal(await page.locator('#task-dialog').evaluate((dialog) => dialog.open), true);
+    assert.match(await page.locator('#detail-content').textContent(), /Время в статусе\s*в статусе 5 дн/);
     await page.locator('#close-detail').click();
     await page.locator('button.card', { hasText: 'Task T-1' }).click();
     assert.doesNotMatch(await page.locator('#detail-content').textContent(), /в статусе/);

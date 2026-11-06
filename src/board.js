@@ -1,4 +1,6 @@
 // Private Markdown is fetched only behind the owner's session gate. Never bundle source data.
+// Internal raw identity survives card spreads but is omitted from JSON responses.
+export const RAW_BOARD_URLS = Symbol('rawBoardUrls');
 export const COLUMNS = Object.freeze(['ideas', 'planned', 'progress', 'review', 'done', 'questions']);
 const OWNER_WORDS = /needs-owner|нужно слово владельца|жд[её]т владельца|вопрос владельцу|слово владельца|ответ владельца|решение владельца/i;
 function splitRow(line) {
@@ -57,7 +59,8 @@ function detail(card, metadata, raw, line) {
   return { ...card, key: `${sourcePath || card.source}::${card.id}`, owner: card.who,
     sourcePath, sourceRevision: metadata.revision || '', sourceUrl: metadata.url || '', provenance: metadata.provenance || '', line,
     description: plain(raw), history: [], evidence: links(raw, metadata.url),
-    statusSince: parseStatusSince(card.state), blockers: /^blocked|^needs.owner/i.test(card.state) ? [plain(raw)] : [],
+    [RAW_BOARD_URLS]: [...raw.matchAll(/https:\/\/[^\s<>()]+/g)].map(match => match[0]),
+    statusSince: '', blockers: /^blocked|^needs.owner/i.test(card.state) ? [plain(raw)] : [],
   };
 }
 export function parseBoard(text, source = 'board', metadata = {}) {
