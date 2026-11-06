@@ -126,7 +126,8 @@ async function main() {
         check(`[${w}] Загрузки: нет горизонтального скролла`, await p.evaluate(() => document.documentElement.scrollWidth <= window.innerWidth));
       }
       if (a.id === 'board') {
-        await p.waitForSelector('#columns .card');
+        await p.waitForSelector('#columns .col-toggle');
+        check(`[${w}] board columns default to collapsed`, await p.$$eval('#columns .col-toggle', (nodes) => nodes.length === 4 && nodes.every((node) => node.getAttribute('aria-expanded') === 'false')));
         check(`[${w}] board renders synthetic API card`, (await p.textContent('#columns')).includes('Synthetic board task'));
         const telemetry = await p.textContent('#telemetry');
         check(`[${w}] board renders unavailable telemetry explicitly`, telemetry.includes('Свежесть неизвестна') && telemetry.includes('Нет доступных событий'));
@@ -134,7 +135,7 @@ async function main() {
         check(`[${w}] board distinguishes persisted queue from unconfigured delivery`, (await p.textContent('#delivery-status')).includes('Канал GitHub Issues ещё не подключён'));
       }
       await p.click('#hub');
-      await p.waitForSelector('#columns .card');
+      await p.waitForSelector('#columns .col-toggle');
       check(`[${w}] brand returns to authorized root board from ${a.id}`, p.url() === BASE + PREFIX, p.url());
       check(`[${w}] root board still renders fixture after brand navigation`, (await p.textContent('#columns')).includes('Synthetic board task'));
       await p.click('#nav-apps');
