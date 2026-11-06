@@ -18,7 +18,7 @@ def fixture():
     bindings = [{'name': n, 'type': 'plain_text', 'text': 'synthetic-private-value'} for n in sorted(p.PLAIN_NAMES)]
     bindings += [{'name': n, 'type': 'secret_text'} for n in sorted(p.SECRET_NAMES)]
     bindings += [{'name': 'HUB_DB', 'type': 'd1', 'id': 'synthetic-database'}, {'name': 'ASSETS', 'type': 'assets'}]
-    return {'placement': {'mode': 'off'}, 'compatibility_date': '2026-10-17',
+    return {'placement': {}, 'compatibility_date': '2026-10-17',
             'compatibility_flags': ['nodejs_compat'], 'usage_model': 'standard', 'tags': ['owner-tag'],
             'tail_consumers': [], 'logpush': False, 'annotations': {'workers/triggered_by': 'secret'}, 'bindings': bindings}
 
@@ -43,6 +43,16 @@ class Guards(unittest.TestCase):
         self.assertNotIn('synthetic-database', json.dumps(config))
         self.assertNotIn('routes', config)
         self.assertNotIn('tags', config)
+
+    def test_observed_empty_placement_only_and_changed_modes_rejected(self):
+        settings = fixture()
+        self.assertEqual(settings['placement'], {})
+        self.assertEqual(p.synthetic_settings()['placement'], {})
+        self.assertNotIn('placement', p.config_for(settings, '/synthetic'))
+        for placement in [{'mode': 'off'}, {'mode': 'smart'}, {'unexpected': True}, None, []]:
+            changed = deepcopy(settings); changed['placement'] = placement
+            with self.subTest(placement=placement), self.assertRaises(p.GuardError):
+                p.validate_settings(changed)
 
     def test_unknown_settings_bindings_and_fields_rejected(self):
         changes = []
@@ -106,6 +116,7 @@ class Guards(unittest.TestCase):
                 'sourcesContent': ['synthetic'], 'names': [], 'mappings': ''}))
             metadata = p.offline_builder(ROOT, directory, fixture())
             self.assertEqual(metadata['main_module'], 'worker.js')
+            self.assertNotIn('placement', metadata)  # Actual {} produces no new version/global setting.
             self.assertNotIn('assets', metadata)  # dry-run has no completion JWT; not an asset-upload proof.
             parts = p.parse_multipart((directory/'actual.multipart').read_bytes())
             for key, body in [('worker.js', b'unreviewed executable'), ('worker.js.map', b'{}')]:

@@ -114,7 +114,7 @@ def validate_settings(settings):
     require(settings['compatibility_date'] == '2026-10-17'
             and settings['compatibility_flags'] == ['nodejs_compat']
             and settings['usage_model'] == 'standard', 'Unsupported runtime configuration')
-    require(settings['placement'] == {'mode': 'off'} and settings['tail_consumers'] == []
+    require(settings['placement'] == {} and settings['tail_consumers'] == []
             and settings['logpush'] is False, 'Unsupported placement/tail/logpush setting')
     tags = settings['tags']
     require(isinstance(tags, list) and all(isinstance(tag, str) for tag in tags), 'Unsupported tags')
@@ -155,7 +155,9 @@ def config_for(settings, directory):
         'compatibility_date': settings['compatibility_date'],
         'compatibility_flags': settings['compatibility_flags'],
         'workers_dev': False, 'preview_urls': False, 'no_bundle': True, 'upload_source_maps': True,
-        'placement': settings['placement'], 'tail_consumers': [],
+        # The accepted API placement is {}. Wrangler requires a mode when this
+        # optional config key exists; omit it so multipart adds no placement field.
+        'tail_consumers': [],
         'assets': {'directory': str(directory / 'assets'), 'binding': 'ASSETS',
                    'html_handling': 'none', 'run_worker_first': True, 'base_path': '/'},
         'unsafe': {'bindings': [{'name': b['name'], 'type': 'inherit'} for b in bindings if b['name'] != 'ASSETS'],
@@ -305,7 +307,7 @@ def synthetic_settings():
     bindings = [{'name': n, 'type': 'plain_text', 'text': 'synthetic-private-value'} for n in sorted(PLAIN_NAMES)]
     bindings += [{'name': n, 'type': 'secret_text'} for n in sorted(SECRET_NAMES)]
     bindings += [{'name': 'HUB_DB', 'type': 'd1', 'id': 'synthetic-database'}, {'name': 'ASSETS', 'type': 'assets'}]
-    return {'placement': {'mode': 'off'}, 'compatibility_date': '2026-10-17',
+    return {'placement': {}, 'compatibility_date': '2026-10-17',
             'compatibility_flags': ['nodejs_compat'], 'usage_model': 'standard', 'tags': ['owner-tag'],
             'tail_consumers': [], 'logpush': False, 'annotations': {}, 'bindings': bindings}
 
