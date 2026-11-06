@@ -48,3 +48,12 @@ jobs:
               if n=="VAPID_PUBLIC_KEY" and t=="plain_text":
                   v=b.get("text") or ""; extra=" len=%d prefix=%s" % (len(v), v[:4])
               print(n, t, extra)'
+      - name: D1 tables of kolobovdjp-hub HUB_DB (read-only, names only)
+        run: |
+          api() { curl -sS -H "Authorization: Bearer $CLOUDFLARE_API_TOKEN" "https://api.cloudflare.com/client/v4$1"; }
+          DB=$(api "/accounts/$CLOUDFLARE_ACCOUNT_ID/workers/scripts/kolobovdjp-hub/settings" | python3 -c 'import json,sys; d=json.load(sys.stdin); print(next((b.get("id") or b.get("database_id") or "" for b in d["result"]["bindings"] if b.get("type")=="d1"),""))')
+          [ -n "$DB" ] || { echo "no d1 id"; exit 0; }
+          curl -sS -X POST -H "Authorization: Bearer $CLOUDFLARE_API_TOKEN" -H "Content-Type: application/json" \
+            --data '{"sql":"SELECT name FROM sqlite_master WHERE type='"'"'table'"'"' ORDER BY name"}' \
+            "https://api.cloudflare.com/client/v4/accounts/$CLOUDFLARE_ACCOUNT_ID/d1/database/$DB/query" \
+            | python3 -c 'import json,sys; d=json.load(sys.stdin); print("success:",d.get("success"), d.get("errors") or ""); [print(r.get("name")) for q in d.get("result") or [] for r in q.get("results") or []]'
