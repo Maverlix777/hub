@@ -6,6 +6,17 @@ const fs = require('node:fs');
 const path = require('node:path');
 const http = require('node:http');
 const syntheticSession = {username:'synthetic-owner',apps:['board','chat','downloads'],locked:[]};
+// Keep a rejecting timer alive until both test-owned resources finish closing;
+// otherwise Node can exit with an unresolved cleanup promise and hide a failure.
+async function closeTestResources(browser, server) {
+  let timer;
+  try {
+    await Promise.race([
+      Promise.all([browser ? browser.close() : Promise.resolve(), new Promise((resolve, reject) => server.close((error) => error ? reject(error) : resolve()))]),
+      new Promise((_, reject) => { timer = setTimeout(() => reject(new Error('Browser test cleanup timed out after 10000ms')), 10000); }),
+    ]);
+  } finally { clearTimeout(timer); }
+}
 (async () => {
   const root = path.resolve(__dirname,'../public');
   const server = http.createServer((req,res) => {
@@ -14,7 +25,7 @@ const syntheticSession = {username:'synthetic-owner',apps:['board','chat','downl
     res.setHeader('Content-Type', filename.endsWith('.css') ? 'text/css' : filename.endsWith('.js') ? 'text/javascript' : 'text/html'); res.end(fs.readFileSync(filename));
   });
   await new Promise(resolve => server.listen(0,'127.0.0.1',resolve));
-  let browser;
+  let browser; let testError;
   try {
     browser = await chromium.launch({headless:true, ...(process.env.HUB_BROWSER ? {executablePath:process.env.HUB_BROWSER} : {})});
     const page = await browser.newPage({viewport:{width:1440,height:1000}});
@@ -46,7 +57,11 @@ const syntheticSession = {username:'synthetic-owner',apps:['board','chat','downl
     assert.equal(await page.locator('#detail-content img').count(),0);
     assert.equal(await page.locator('#detail-content a[href^="javascript:"]').count(),0);
     await page.keyboard.press('Escape'); await page.waitForFunction(()=>!document.getElementById('task-dialog').open);
-    assert.equal(await page.evaluate(()=>document.activeElement.dataset.cardKey),card.key);
+    // An answered question moves into progress. Keep the collapsed preference and
+    // return keyboard focus to its visible column header instead of a hidden card.
+    assert.equal(await page.evaluate(()=>document.activeElement.dataset.col),'progress');
+    assert.equal(await page.locator('.col-toggle[data-col="progress"]').getAttribute('aria-expanded'),'false');
+    assert.equal(await page.locator('#col-progress').isHidden(),true);
     await page.reload(); await page.locator('#outbox-list .outbox-entry').waitFor();
     assert.match(await page.locator('#outbox-list').textContent(),/Синтетический ответ/);
     await page.locator('#question-list button').click(); await page.goBack(); await page.waitForFunction(()=>!document.getElementById('task-dialog').open);
@@ -195,5 +210,8 @@ const syntheticSession = {username:'synthetic-owner',apps:['board','chat','downl
     assert.equal(await resumePage.locator('.retry-delivery').count(),0);
     await resumePage.close();
     console.log('PASS: pending disabled-channel item survives reload and resumes after enable with identical key/payload/id, no fresh message; synthetic API only.');
-  } finally { if (browser) await browser.close(); await new Promise(resolve=>server.close(resolve)); }
+  } catch (error) { testError = error; } finally {
+    try { await closeTestResources(browser, server); } catch (error) { testError = testError ? new AggregateError([testError, error], 'Assertions and cleanup failed') : error; }
+  }
+  if (testError) throw testError;
 })().catch(error=>{console.error(error);process.exitCode=1;});
