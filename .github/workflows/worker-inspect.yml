@@ -1,0 +1,39 @@
+name: Worker inspect
+
+# Manual only, read-only. Prints Worker script names, routes, custom domains and
+# DNS record type/proxy status. No secret values, no code deploy.
+# Needs repository secrets CLOUDFLARE_API_TOKEN and CLOUDFLARE_ACCOUNT_ID.
+
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  inspect:
+    if: github.repository == 'Maverlix777/hub'
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    env:
+      CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+      CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+    steps:
+      - name: Inspect
+        run: |
+          set -u
+          api() { curl -sS -H "Authorization: Bearer $CLOUDFLARE_API_TOKEN" "https://api.cloudflare.com/client/v4$1"; }
+          echo "== scripts (id, modified_on)"
+          api "/accounts/$CLOUDFLARE_ACCOUNT_ID/workers/scripts" | python3 -c 'import json,sys; d=json.load(sys.stdin); print("success:",d.get("success")); [print(s.get("id"), s.get("modified_on")) for s in d.get("result") or []]'
+          echo "== zone"
+          ZONE=$(api "/zones?name=kolobovdjp.org" | python3 -c 'import json,sys; d=json.load(sys.stdin); r=d.get("result") or []; print(r[0]["id"] if r else "")')
+          [ -n "$ZONE" ] || { echo "::error::zone not found"; exit 1; }
+          echo "zone found"
+          echo "== routes (id, pattern, script)"
+          api "/zones/$ZONE/workers/routes" | python3 -c 'import json,sys; d=json.load(sys.stdin); print("success:",d.get("success")); [print(r.get("id"), r.get("pattern"), "->", r.get("script")) for r in d.get("result") or []]'
+          echo "== custom domains (hostname -> service, environment)"
+          api "/accounts/$CLOUDFLARE_ACCOUNT_ID/workers/domains" | python3 -c 'import json,sys; d=json.load(sys.stdin); print("success:",d.get("success"), d.get("errors") or ""); [print(r.get("hostname"), "->", r.get("service"), r.get("environment"), r.get("zone_name")) for r in d.get("result") or []]'
+          echo "== dns hub.kolobovdjp.org (type, proxied)"
+          api "/zones/$ZONE/dns_records?name=hub.kolobovdjp.org" | python3 -c 'import json,sys; d=json.load(sys.stdin); print("success:",d.get("success"), d.get("errors") or ""); [print(r.get("name"), r.get("type"), "proxied="+str(r.get("proxied")), r.get("content")) for r in d.get("result") or []]'
+          echo "== dns kolobovdjp.org apex (type, proxied)"
+          api "/zones/$ZONE/dns_records?name=kolobovdjp.org" | python3 -c 'import json,sys; d=json.load(sys.stdin); print("success:",d.get("success"), d.get("errors") or ""); [print(r.get("name"), r.get("type"), "proxied="+str(r.get("proxied")), r.get("content")) for r in d.get("result") or []]'
