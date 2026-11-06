@@ -26,6 +26,11 @@ export function validPushSubscription(value) {
     && validKey(value.keys.auth, 16);
 }
 
+// APNs device token: hex string (32 bytes today, Apple allows longer).
+export function validApnsToken(value) {
+  return typeof value === 'string' && /^[0-9a-fA-F]{64,200}$/.test(value);
+}
+
 export function validPublicKey(value) {
   return validKey(value, 65) && Buffer.from(value, 'base64url')[0] === 4;
 }
@@ -107,15 +112,18 @@ export async function handlePush(request, env, path, session, owner, canonicalOr
   }
   if (delivery && request.method === 'GET') {
     const legacy = await storageFormat(env.HUB_DB) === 'legacy';
-    const selected = legacy ? 'p.subscription_json' : 'p.endpoint, p.p256dh, p.auth';
+    // apns rows (type/token columns from migration 0005) exist only in the flat layout.
+    const selected = legacy ? 'p.subscription_json' : 'p.endpoint, p.p256dh, p.auth, p.type, p.token';
     const order = legacy ? 'p.updated_at DESC, p.endpoint_hash ASC' : 'p.endpoint';
     const rows = await env.HUB_DB.prepare(`SELECT ${selected}, u.id, u.username
       FROM push_subscriptions p JOIN users u ON u.id = p.user_id ORDER BY ${order}`).all();
     const seen = new Set();
     const subscriptions = (rows.results || []).filter(row => currentOwner({ id: row.id, username: row.username }))
-      .map(row => storedSubscription(row, legacy)).filter(value => {
-        if (!value || seen.has(value.endpoint)) return false;
-        seen.add(value.endpoint);
+      .map(row => !legacy && row.type === 'apns' ? (validApnsToken(row.token) ? { type: 'apns', token: row.token } : null)
+        : storedSubscription(row, legacy)).filter(value => {
+        const id = value && (value.type === 'apns' ? `apns:${value.token}` : value.endpoint);
+        if (!value || seen.has(id)) return false;
+        seen.add(id);
         return true;
       });
     return json({ subscriptions });
@@ -124,17 +132,21 @@ export async function handlePush(request, env, path, session, owner, canonicalOr
   if (!delivery && (request.headers.get('origin') !== canonicalOrigin || request.headers.get('X-Hub-Request') !== '1'
     || (request.headers.has('sec-fetch-site') && request.headers.get('sec-fetch-site') !== 'same-origin'))) return json({ error: 'forbidden_request' }, 403);
   const body = await boundedJson(request);
-  if (!body || !validPushEndpoint(body.endpoint)) return json({ error: 'invalid_subscription' }, 400);
-  if (request.method === 'POST') {
+  const apns = body?.type === 'apns';
+  if (!body || (apns ? !validApnsToken(body.token) : !validPushEndpoint(body.endpoint))) return json({ error: 'invalid_subscription' }, 400);
+  if (request.method === 'POST' && !apns) {
     if (!validPublicKey(env.VAPID_PUBLIC_KEY)) return json({ error: 'push_not_configured' }, 503);
     if (!validPushSubscription(body)) return json({ error: 'invalid_subscription' }, 400);
   }
   const legacy = await storageFormat(env.HUB_DB) === 'legacy';
+  // apns rows are keyed by 'apns:<token>' so the existing primary key stays unique across both types.
+  const key = apns ? `apns:${body.token.toLowerCase()}` : body.endpoint;
+  if (apns && legacy) return json({ error: 'apns_unsupported_storage' }, 503);
   if (request.method === 'DELETE') {
     const endpoint = legacy ? legacyEndpoint : 'endpoint';
     const statement = delivery
-      ? env.HUB_DB.prepare(`DELETE FROM push_subscriptions WHERE ${endpoint} = ?`).bind(body.endpoint)
-      : env.HUB_DB.prepare(`DELETE FROM push_subscriptions WHERE ${endpoint} = ? AND user_id = ?`).bind(body.endpoint, session.id);
+      ? env.HUB_DB.prepare(`DELETE FROM push_subscriptions WHERE ${endpoint} = ?`).bind(key)
+      : env.HUB_DB.prepare(`DELETE FROM push_subscriptions WHERE ${endpoint} = ? AND user_id = ?`).bind(key, session.id);
     await statement.run();
     return json({ ok: true });
   }
@@ -154,11 +166,12 @@ export async function handlePush(request, env, path, session, owner, canonicalOr
     return Number(saved?.meta?.changes || 0) === 1 ? json({ ok: true }, 201) : json({ error: 'subscription_limit_or_conflict' }, 409);
   }
   // The count and insert share a statement; concurrent requests cannot bypass the cap.
-  const saved = await env.HUB_DB.prepare(`INSERT INTO push_subscriptions(endpoint, user_id, p256dh, auth, updated_at)
-    SELECT ?, ?, ?, ?, ? WHERE (SELECT COUNT(*) FROM push_subscriptions WHERE user_id = ?) < 10
+  const saved = await env.HUB_DB.prepare(`INSERT INTO push_subscriptions(endpoint, user_id, p256dh, auth, updated_at, type, token)
+    SELECT ?, ?, ?, ?, ?, ?, ? WHERE (SELECT COUNT(*) FROM push_subscriptions WHERE user_id = ?) < 10
       OR EXISTS (SELECT 1 FROM push_subscriptions WHERE endpoint = ? AND user_id = ?)
     ON CONFLICT(endpoint) DO UPDATE SET p256dh = excluded.p256dh, auth = excluded.auth, updated_at = excluded.updated_at
       WHERE push_subscriptions.user_id = excluded.user_id`)
-    .bind(body.endpoint, session.id, body.keys.p256dh, body.keys.auth, now, session.id, body.endpoint, session.id).run();
+    .bind(key, session.id, apns ? '' : body.keys.p256dh, apns ? '' : body.keys.auth, now, apns ? 'apns' : 'webpush',
+      apns ? body.token.toLowerCase() : null, session.id, key, session.id).run();
   return Number(saved?.meta?.changes || 0) === 1 ? json({ ok: true }, 201) : json({ error: 'subscription_limit_or_conflict' }, 409);
 }

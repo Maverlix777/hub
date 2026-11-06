@@ -1,4 +1,5 @@
 import { Buffer } from 'node:buffer';
+import { expectedOrigins, wellKnownResponse } from './native-app.js';
 import { loadBoardSources } from './board-sources.js';
 import { readTelemetry } from './telemetry.js';
 import { validatePayload, existingSubmission, enqueue, listSubmissions } from './outbox.js';
@@ -551,7 +552,7 @@ async function api(request, env, path, session, webauthn, now, canonicalOrigin, 
       verified = await webauthn.verifyRegistrationResponse({
         response: body.response,
         expectedChallenge: challenge.challenge,
-        expectedOrigin: canonicalOrigin,
+        expectedOrigin: expectedOrigins(env, canonicalOrigin),
         expectedRPID: env.RP_ID,
         requireUserVerification: true,
       });
@@ -621,7 +622,7 @@ async function api(request, env, path, session, webauthn, now, canonicalOrigin, 
       verified = await webauthn.verifyAuthenticationResponse({
         response: body.response,
         expectedChallenge: challenge.challenge,
-        expectedOrigin: canonicalOrigin,
+        expectedOrigin: expectedOrigins(env, canonicalOrigin),
         expectedRPID: env.RP_ID,
         credential: {
           id: row.id,
@@ -702,6 +703,8 @@ export function createWorker(webauthn = {
         return Response.redirect(target.toString(), 308);
       }
 
+      const wellKnown = wellKnownResponse(url.pathname, request.method);
+      if (wellKnown) return wellKnown;
       let pathname;
       try { pathname = safePublicPath(url); } catch { pathname = null; }
       if (!pathname) return new Response('Bad request', { status: 400, headers: noStore });

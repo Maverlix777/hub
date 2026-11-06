@@ -1,5 +1,44 @@
+import { createPrivateKey, sign } from 'node:crypto';
+import { connect } from 'node:http2';
 import { pathToFileURL } from 'node:url';
 import { ECDH, createHash, createPublicKey, verify } from 'node:crypto';
+
+const APNS_TOPIC = 'org.kolobovdjp.hub';
+const APNS_REQUIRED = ['APNS_KEY', 'APNS_KEY_ID', 'APNS_TEAM_ID'];
+const apnsToken = (value) => typeof value === 'string' && /^[0-9a-fA-F]{64,200}$/.test(value);
+
+// ES256 provider token (valid 1 hour). The .p8 key comes from the APNS_KEY secret and is never logged.
+export function apnsJwt({ key, keyId, teamId, now = Date.now() }) {
+  const part = (value) => Buffer.from(JSON.stringify(value)).toString('base64url');
+  const head = `${part({ alg: 'ES256', kid: keyId })}.${part({ iss: teamId, iat: Math.floor(now / 1000) })}`;
+  const signature = sign('sha256', Buffer.from(head), { key: createPrivateKey(key), dsaEncoding: 'ieee-p1363' });
+  return `${head}.${signature.toString('base64url')}`;
+}
+
+// One HTTP/2 session per run. Resolves { status } or throws; response body (reason) is never returned.
+function apnsSender(env) {
+  const host = env.APNS_ENV === 'development' ? 'https://api.sandbox.push.apple.com' : 'https://api.push.apple.com';
+  const jwt = apnsJwt({ key: env.APNS_KEY.replace(/\\n/g, '\n'), keyId: env.APNS_KEY_ID, teamId: env.APNS_TEAM_ID });
+  let session;
+  const send = (token, payload) => new Promise((resolve, reject) => {
+    session ||= connect(host);
+    session.once('error', reject);
+    const req = session.request({
+      ':method': 'POST', ':path': `/3/device/${token}`, authorization: `bearer ${jwt}`,
+      'apns-topic': APNS_TOPIC, 'apns-push-type': 'alert', 'apns-priority': '10', 'apns-expiration': String(Math.floor(Date.now() / 1000) + 3600),
+    });
+    req.setTimeout(15000, () => { req.close(); reject(new Error('timeout')); });
+    let status = 0;
+    req.on('response', (headers) => { status = headers[':status']; });
+    req.on('error', reject);
+    req.on('end', () => resolve({ status }));
+    req.resume();
+    req.end(payload);
+  });
+  send.close = () => session?.close();
+  return send;
+}
+
 
 const REQUIRED = ['HUB_PUSH_URL', 'PUSH_DELIVERY_TOKEN'];
 
@@ -14,6 +53,7 @@ function deliveryUrl(value) {
 }
 
 function validSubscription(subscription) {
+  if (subscription?.type === 'apns') return apnsToken(subscription.token);
   try {
     const url = new URL(subscription.endpoint);
     const host = url.hostname;
@@ -91,7 +131,7 @@ async function signerReceipt(response, endpoint, nowSeconds) {
 }
 
 // Dependency injection keeps tests offline and prevents test runs using real secrets.
-export async function sendPush({ env = process.env, fetchImpl = fetch, sendNotification, log = console.log, now = Date.now } = {}) {
+export async function sendPush({ env = process.env, fetchImpl = fetch, sendNotification, sendApns, log = console.log, now = Date.now } = {}) {
   if (REQUIRED.some((name) => env[name] == null || env[name] === '' || (typeof env[name] === 'string' && !env[name].trim()))) {
     log('Web Push skipped: configuration is incomplete.');
     return { skipped: true, sent: 0, expired: 0, failed: 0 };
@@ -123,6 +163,12 @@ export async function sendPush({ env = process.env, fetchImpl = fetch, sendNotif
     sendNotification = webpush.sendNotification.bind(webpush);
   }
   const result = { skipped: false, sent: 0, expired: 0, failed: 0 };
+  const apnsConfigured = APNS_REQUIRED.every((name) => env[name]?.trim());
+  let apnsClose;
+  if (!sendApns && apnsConfigured && subscriptions.some((item) => item.type === 'apns')) {
+    try { sendApns = apnsSender(env); apnsClose = sendApns.close; }
+    catch { throw new Error('Web Push APNs configuration is invalid.'); }
+  }
   const payload = JSON.stringify({ title: 'От агентов', body: 'Есть обновление. Открой хаб.', url: '/' });
   const cache = new Map();
   const authorize = async subscription => {
@@ -138,9 +184,27 @@ export async function sendPush({ env = process.env, fetchImpl = fetch, sendNotif
   };
   // Detect initial signer/configuration failures before the first delivery.
   for (const subscription of subscriptions) {
-    if (!cache.has(new URL(subscription.endpoint).origin)) await authorize(subscription);
+    if (subscription.type !== 'apns' && !cache.has(new URL(subscription.endpoint).origin)) await authorize(subscription);
   }
+  const apnsPayload = JSON.stringify({ aps: { alert: { title: 'От агентов', body: 'Есть обновление. Открой хаб.' }, sound: 'default' }, url: '/' });
+  let apnsSkipped = 0;
   for (const subscription of subscriptions) {
+    if (subscription.type === 'apns') {
+      if (!sendApns) { apnsSkipped++; continue; }
+      try {
+        const { status } = await sendApns(subscription.token, apnsPayload);
+        if (status === 200) result.sent++;
+        else if (status === 410 || status === 400) {
+          // 410 Unregistered / 400 (BadDeviceToken etc.): drop the token so it is not retried forever.
+          await request({ method: 'DELETE', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ type: 'apns', token: subscription.token }) });
+          result.expired++;
+        } else result.failed++;
+      } catch (error) {
+        if (error?.message?.startsWith('Web Push ')) throw error;
+        result.failed++;
+      }
+      continue;
+    }
     let receipt;
     try { receipt = await authorize(subscription); }
     catch (error) {
@@ -170,6 +234,8 @@ export async function sendPush({ env = process.env, fetchImpl = fetch, sendNotif
       }
     }
   }
+  apnsClose?.();
+  if (apnsSkipped) log(`APNs skipped: APNS_KEY, APNS_KEY_ID or APNS_TEAM_ID is not set (${apnsSkipped} subscription(s)).`);
   log(`Web Push: sent=${result.sent}, expired=${result.expired}, failed=${result.failed}.`);
   if (result.failed) throw new Error('Web Push delivery failed for one or more subscriptions.');
   return result;
