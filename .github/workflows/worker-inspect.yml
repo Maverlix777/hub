@@ -37,3 +37,14 @@ jobs:
           api "/zones/$ZONE/dns_records?name=hub.kolobovdjp.org" | python3 -c 'import json,sys; d=json.load(sys.stdin); print("success:",d.get("success"), d.get("errors") or ""); [print(r.get("name"), r.get("type"), "proxied="+str(r.get("proxied")), r.get("content")) for r in d.get("result") or []]'
           echo "== dns kolobovdjp.org apex (type, proxied)"
           api "/zones/$ZONE/dns_records?name=kolobovdjp.org" | python3 -c 'import json,sys; d=json.load(sys.stdin); print("success:",d.get("success"), d.get("errors") or ""); [print(r.get("name"), r.get("type"), "proxied="+str(r.get("proxied")), r.get("content")) for r in d.get("result") or []]'
+      - name: Bindings of kolobovdjp-hub (names and types only)
+        run: |
+          api() { curl -sS -H "Authorization: Bearer $CLOUDFLARE_API_TOKEN" "https://api.cloudflare.com/client/v4$1"; }
+          api "/accounts/$CLOUDFLARE_ACCOUNT_ID/workers/scripts/kolobovdjp-hub/settings" | python3 -c '
+          import json,sys
+          d=json.load(sys.stdin); print("success:",d.get("success"), d.get("errors") or "")
+          for b in (d.get("result") or {}).get("bindings") or []:
+              n=b.get("name"); t=b.get("type"); extra=""
+              if n=="VAPID_PUBLIC_KEY" and t=="plain_text":
+                  v=b.get("text") or ""; extra=" len=%d prefix=%s" % (len(v), v[:4])
+              print(n, t, extra)'
