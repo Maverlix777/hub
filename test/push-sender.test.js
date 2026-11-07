@@ -60,7 +60,7 @@ test('sender attempts remaining subscriptions but fails without leaking provider
     sendNotification: async () => { if (++sends === 1) throw new Error('SECRET subscription private endpoint'); },
   }), /Web Push delivery failed/);
   assert.equal(sends, 2);
-  assert.deepEqual(logs, ['Web Push: sent=1, expired=0, failed=1.']);
+  assert.deepEqual(logs, ['Web Push provider failure: network or unknown error.', 'Web Push: sent=1, expired=0, failed=1.']);
 });
 
 test('sender rejects unsafe delivery URLs before network and unsafe provider endpoints before send', async () => {
@@ -105,4 +105,27 @@ test('workflow targets the real Worker route and checks out the event revision o
   assert.ok(workflow.includes("ref: ${{ github.repository == 'Maverlix777/hub' && github.sha || 'main' }}"));
   assert.match(workflow, /persist-credentials: false/);
   assert.match(workflow, /github\.repository_owner == 'Maverlix777' && github\.event\.repository\.fork != true/);
+});
+
+test('sender reports only numeric provider HTTP status from a secret-bearing rejection', async () => {
+  const logs = [];
+  const privateMarker = 'PRIVATE_PROVIDER_ERROR_MUST_NOT_APPEAR';
+  await assert.rejects(sendPush({ env, log: value => logs.push(value), fetchImpl: async () => list(),
+    sendNotification: async () => { throw { statusCode: 403, message: privateMarker, body: privateMarker,
+      endpoint: subscription.endpoint, headers: { authorization: privateMarker }, stack: privateMarker }; },
+  }), /Web Push delivery failed for one or more subscriptions\./);
+  assert.deepEqual(logs, ['Web Push provider failure: HTTP 403.', 'Web Push: sent=0, expired=0, failed=1.']);
+  assert.ok(!logs.join('\n').includes(privateMarker));
+  assert.ok(!logs.join('\n').includes(subscription.endpoint));
+});
+
+test('sender does not coerce malformed provider status into diagnostic output', async () => {
+  for (const statusCode of ['403\nPRIVATE_INJECTION', { toString() { throw new Error('PRIVATE_COERCION'); } },
+    undefined, NaN, Infinity, 99, 600, 403.5, true]) {
+    const logs = [];
+    await assert.rejects(sendPush({ env, log: value => logs.push(value), fetchImpl: async () => list(),
+      sendNotification: async () => { throw { statusCode, message: 'PRIVATE_MESSAGE', body: 'PRIVATE_BODY' }; },
+    }), /Web Push delivery failed for one or more subscriptions\./);
+    assert.deepEqual(logs, ['Web Push provider failure: network or unknown error.', 'Web Push: sent=0, expired=0, failed=1.']);
+  }
 });

@@ -70,7 +70,12 @@ export async function sendPush({ env = process.env, fetchImpl = fetch, sendNotif
         await request({ method: 'DELETE', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ endpoint: subscription.endpoint }) });
         result.expired++;
       } else {
-        // Provider errors can contain subscription URLs and keys. Never print them.
+        // Provider objects can contain endpoints, keys and private response bodies.
+        // Only a bounded numeric status may enter the fixed diagnostic text.
+        const status = error?.statusCode;
+        log(Number.isInteger(status) && status >= 100 && status <= 599
+          ? `Web Push provider failure: HTTP ${status}.`
+          : 'Web Push provider failure: network or unknown error.');
         result.failed++;
       }
     }
