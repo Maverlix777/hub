@@ -1,12 +1,21 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { readFile } from 'node:fs/promises';
+import { createECDH, createHash } from 'node:crypto';
 import { sendPush } from '../tools/send-push.mjs';
 
+// Deterministic synthetic scalar1/2 fixtures; never actual credentials.
+function pair(scalar) {
+  const privateKey = Buffer.alloc(32); privateKey[31] = scalar;
+  const ecdh = createECDH('prime256v1'); ecdh.setPrivateKey(privateKey);
+  return { privateKey: privateKey.toString('base64url'), publicKey: ecdh.getPublicKey(undefined, 'uncompressed').toString('base64url') };
+}
+const firstPair = pair(1); const secondPair = pair(2);
+const publicHash = createHash('sha256').update(Buffer.from(firstPair.publicKey, 'base64url')).digest('hex');
 const env = {
   HUB_PUSH_URL: 'https://hub.kolobovdjp.org/hub/api/push/delivery',
-  PUSH_DELIVERY_TOKEN: 'synthetic-token', VAPID_PUBLIC_KEY: 'synthetic-public',
-  VAPID_PRIVATE_KEY: 'synthetic-private', VAPID_SUBJECT: 'mailto:test@example.com',
+  PUSH_DELIVERY_TOKEN: 'synthetic-token', VAPID_PUBLIC_KEY: firstPair.publicKey,
+  VAPID_PRIVATE_KEY: firstPair.privateKey, VAPID_SUBJECT: 'mailto:test@example.com',
 };
 const subscription = { endpoint: 'https://fcm.googleapis.com/fcm/send/synthetic', keys: { p256dh: 'synthetic', auth: 'synthetic' } };
 const list = (subscriptions = [subscription]) => new Response(JSON.stringify({ subscriptions }));
@@ -21,8 +30,8 @@ test('sender skips missing configuration without any network request', async () 
 });
 
 test('sender delivers generic payload with VAPID and bounded requests', async () => {
-  let sent = 0;
-  const result = await sendPush({ env, log: () => {}, fetchImpl: async (url, options) => {
+  let sent = 0; const logs = [];
+  const result = await sendPush({ env, log: value => logs.push(value), fetchImpl: async (url, options) => {
     assert.equal(url, env.HUB_PUSH_URL);
     assert.equal(options.headers.authorization, `Bearer ${env.PUSH_DELIVERY_TOKEN}`);
     assert.equal(options.redirect, 'error');
@@ -38,6 +47,7 @@ test('sender delivers generic payload with VAPID and bounded requests', async ()
   } });
   assert.equal(sent, 1);
   assert.deepEqual(result, { skipped: false, sent: 1, expired: 0, failed: 0 });
+  assert.deepEqual(logs, ['Web Push: sent=1, expired=0, failed=0.']);
 });
 
 for (const statusCode of [404, 410]) {
@@ -60,7 +70,7 @@ test('sender attempts remaining subscriptions but fails without leaking provider
     sendNotification: async () => { if (++sends === 1) throw new Error('SECRET subscription private endpoint'); },
   }), /Web Push delivery failed/);
   assert.equal(sends, 2);
-  assert.deepEqual(logs, ['Web Push provider failure: network or unknown error.', 'Web Push: sent=1, expired=0, failed=1.']);
+  assert.deepEqual(logs, ['Web Push provider failure: network or unknown error.', 'Web Push provider classification: provider=google, reason=unknown.', 'Web Push: sent=1, expired=0, failed=1.']);
 });
 
 test('sender rejects unsafe delivery URLs before network and unsafe provider endpoints before send', async () => {
@@ -114,7 +124,7 @@ test('sender reports only numeric provider HTTP status from a secret-bearing rej
     sendNotification: async () => { throw { statusCode: 403, message: privateMarker, body: privateMarker,
       endpoint: subscription.endpoint, headers: { authorization: privateMarker }, stack: privateMarker }; },
   }), /Web Push delivery failed for one or more subscriptions\./);
-  assert.deepEqual(logs, ['Web Push provider failure: HTTP 403.', 'Web Push: sent=0, expired=0, failed=1.']);
+  assert.deepEqual(logs, ['Web Push provider failure: HTTP 403.', 'Web Push provider classification: provider=google, reason=unknown.', `Web Push VAPID configured_public_sha256=${publicHash}.`, 'Web Push: sent=0, expired=0, failed=1.']);
   assert.ok(!logs.join('\n').includes(privateMarker));
   assert.ok(!logs.join('\n').includes(subscription.endpoint));
 });
@@ -126,6 +136,71 @@ test('sender does not coerce malformed provider status into diagnostic output', 
     await assert.rejects(sendPush({ env, log: value => logs.push(value), fetchImpl: async () => list(),
       sendNotification: async () => { throw { statusCode, message: 'PRIVATE_MESSAGE', body: 'PRIVATE_BODY' }; },
     }), /Web Push delivery failed for one or more subscriptions\./);
-    assert.deepEqual(logs, ['Web Push provider failure: network or unknown error.', 'Web Push: sent=0, expired=0, failed=1.']);
+    assert.deepEqual(logs, ['Web Push provider failure: network or unknown error.', 'Web Push provider classification: provider=google, reason=unknown.', 'Web Push: sent=0, expired=0, failed=1.']);
+  }
+});
+
+
+test('sender rejects mismatched real P256 pair before API and emits only validated public fingerprints', async () => {
+  const logs = []; let calls = 0;
+  await assert.rejects(sendPush({ env: { ...env, VAPID_PRIVATE_KEY: secondPair.privateKey }, log: s => logs.push(s),
+    fetchImpl: () => { calls++; }, sendNotification: () => { calls++; } }), /VAPID keypair does not match/);
+  assert.equal(calls, 0);
+  const derived = createHash('sha256').update(Buffer.from(secondPair.publicKey, 'base64url')).digest('hex');
+  assert.deepEqual(logs, [`Web Push VAPID mismatch: configured_public_sha256=${publicHash}, derived_public_sha256=${derived}.`]);
+  for (const key of [firstPair.publicKey, firstPair.privateKey, secondPair.publicKey, secondPair.privateKey]) assert.ok(!logs.join('').includes(key));
+});
+
+test('sender rejects noncanonical invalid points and private scalars before network without fingerprints', async () => {
+  for (const invalid of [{ VAPID_PUBLIC_KEY: firstPair.publicKey + '=' }, { VAPID_PUBLIC_KEY: Buffer.alloc(65, 4).toString('base64url') },
+    { VAPID_PRIVATE_KEY: Buffer.alloc(32).toString('base64url') }, { VAPID_PRIVATE_KEY: 'bad' }, { VAPID_PUBLIC_KEY: true }, { VAPID_PRIVATE_KEY: false }]) {
+    const logs = [];
+    await assert.rejects(sendPush({ env: { ...env, ...invalid }, log: s => logs.push(s), fetchImpl: () => assert.fail('network') }), /VAPID keypair is invalid/);
+    assert.deepEqual(logs, []);
+  }
+});
+
+test('sender classifies finite provider reasons without private response content', async () => {
+  const cases = [
+    ['https://web.push.apple.com/synthetic', JSON.stringify({ reason: 'VapidPkHashMismatch', message: 'PRIVATE_SENTINEL' }), 'apple', 'VapidPkHashMismatch'],
+    ['https://updates.push.services.mozilla.com/synthetic', JSON.stringify({ errno: 101, message: 'PRIVATE_SENTINEL' }), 'mozilla', 'missing_crypto_keys'],
+    ['https://fcm.googleapis.com/synthetic', JSON.stringify({ reason: 'VapidPkHashMismatch' }), 'google', 'unknown'],
+  ];
+  for (const [endpoint, body, kind, reason] of cases) {
+    const logs = [];
+    await assert.rejects(sendPush({ env, log: s => logs.push(s), fetchImpl: async () => list([{ ...subscription, endpoint }]),
+      sendNotification: async () => { throw { statusCode: 400, body, message: 'PRIVATE_SENTINEL' }; } }), /Web Push delivery failed/);
+    assert.ok(logs.includes(`Web Push provider classification: provider=${kind}, reason=${reason}.`));
+    assert.ok(logs.includes(`Web Push VAPID configured_public_sha256=${publicHash}.`));
+    assert.ok(!logs.join('').includes('PRIVATE_SENTINEL')); assert.ok(!logs.join('').includes(endpoint));
+  }
+});
+
+test('sender finite reason classifier rejects malformed oversized native-only and coercion inputs', async () => {
+  for (const body of ['{bad', 'x'.repeat(4097), JSON.stringify({ reason: 'BadDeviceToken' }), JSON.stringify({ reason: 'PRIVATE_SENTINEL' }),
+    JSON.stringify({ reason: true }), JSON.stringify(['BadTtl']), JSON.stringify({ errno: '101' }), { toString() { throw Error('PRIVATE_SENTINEL'); } }]) {
+    const logs = [];
+    await assert.rejects(sendPush({ env, log: s => logs.push(s), fetchImpl: async () => list([{ ...subscription, endpoint: 'https://web.push.apple.com/synthetic' }]),
+      sendNotification: async () => { throw { statusCode: 500, body }; } }), /Web Push delivery failed/);
+    assert.ok(logs.includes('Web Push provider classification: provider=apple, reason=unknown.'));
+    assert.ok(!logs.join('').includes('PRIVATE_SENTINEL'));
+  }
+});
+
+
+test('sender reason output is confined to the full documented Apple and Mozilla maps', async () => {
+  const apple = ['BadTtl','BadUrgency','BadWebPushRequest','BadWebPushTopic','VapidPkHashMismatch','IdleTimeout',
+    'BadAuthorizationHeader','BadJwtToken','BadVapidPublicKey','BadPath','MethodNotAllowed','PayloadTooLarge',
+    'TooManyRequests','InternalServerError','ServiceUnavailable','Shutdown'];
+  const mozilla = [[101,'missing_crypto_keys'],[108,'invalid_router'],[110,'invalid_crypto_keys'],[111,'missing_header'],
+    [112,'invalid_ttl'],[113,'invalid_topic'],[109,'invalid_authentication'],['101','unknown'],[true,'unknown'],[999,'unknown']];
+  const cases = [...apple.map(reason => ['apple', 'https://web.push.apple.com/synthetic', JSON.stringify({ reason }), reason]),
+    ...mozilla.map(([errno, reason]) => ['mozilla', 'https://updates.push.services.mozilla.com/synthetic', JSON.stringify({ errno }), reason]),
+    ['apple', 'https://web.push.apple.com/synthetic', JSON.stringify({ reason:'BadTtl', padding:'é'.repeat(2200) }), 'unknown']];
+  for (const [provider, endpoint, body, reason] of cases) {
+    const logs = [];
+    await assert.rejects(sendPush({ env, log: s => logs.push(s), fetchImpl: async () => list([{ ...subscription, endpoint }]),
+      sendNotification: async () => { throw { statusCode: 500, body }; } }), /Web Push delivery failed/);
+    assert.ok(logs.includes(`Web Push provider classification: provider=${provider}, reason=${reason}.`));
   }
 });
