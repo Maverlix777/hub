@@ -1,4 +1,5 @@
 import { Buffer } from 'node:buffer';
+import { signPushVapid } from './push-vapid.js';
 
 // Delivery follows these URLs outside the Worker, so never accept arbitrary hosts.
 export function validPushEndpoint(value) {
@@ -56,42 +57,102 @@ async function boundedJson(request) {
   } catch { return null; } finally { reader.releaseLock(); }
 }
 
+// Recognize the two existing storage contracts without changing either table.
+async function storageFormat(db) {
+  const { results = [] } = await db.prepare("PRAGMA table_info('push_subscriptions')").all();
+  const columns = new Map(results.map(column => [column.name, column]));
+  const has = fields => Object.entries(fields).every(([name, type]) => columns.get(name)?.type?.toUpperCase() === type);
+  const flat = has({ endpoint: 'TEXT', user_id: 'TEXT', p256dh: 'TEXT', auth: 'TEXT', updated_at: 'INTEGER' }) && columns.get('endpoint').pk === 1;
+  const legacy = has({ endpoint_hash: 'TEXT', user_id: 'TEXT', subscription_json: 'TEXT', created_at: 'INTEGER', updated_at: 'INTEGER' }) && columns.get('endpoint_hash').pk === 1;
+  if (flat === legacy) throw new Error('Unsupported push storage');
+  return legacy ? 'legacy' : 'flat';
+}
+
+function storedSubscription(row, legacy) {
+  let value;
+  if (legacy) {
+    if (typeof row.subscription_json !== 'string' || Buffer.byteLength(row.subscription_json) > 4096) return null;
+    try { value = JSON.parse(row.subscription_json); } catch { return null; }
+  } else value = { endpoint: row.endpoint, keys: { p256dh: row.p256dh, auth: row.auth } };
+  return validPushSubscription(value)
+    ? { endpoint: value.endpoint, keys: { p256dh: value.keys.p256dh, auth: value.keys.auth } } : null;
+}
+
+// CASE prevents malformed or oversized historical JSON from reaching json_extract.
+const legacyEndpoint = "CASE WHEN length(CAST(subscription_json AS BLOB)) <= 4096 AND json_valid(subscription_json) THEN json_extract(subscription_json, '$.endpoint') END";
+
 export async function handlePush(request, env, path, session, owner, canonicalOrigin, now, currentOwner = () => false) {
   const json = (body, status = 200) => new Response(JSON.stringify(body), {
     status, headers: { 'content-type': 'application/json; charset=utf-8', 'cache-control': 'no-store' },
   });
   const delivery = path === '/hub/api/push/delivery';
-  if (!delivery && !['/hub/api/push/config', '/hub/api/push/subscriptions'].includes(path)) return json({ error: 'not_found' }, 404);
-  if (delivery) {
+  const vapid = path === '/hub/api/push/delivery/vapid';
+  if (!delivery && !vapid && !['/hub/api/push/config', '/hub/api/push/subscriptions'].includes(path)) return json({ error: 'not_found' }, 404);
+  if (delivery || vapid) {
     if (!await deliveryAuthorized(request, env)) return json({ error: 'unauthorized' }, 401);
   } else {
     if (!session) return json({ error: 'unauthorized' }, 401);
     if (!owner) return json({ error: 'forbidden' }, 403);
+  }
+  if (vapid) {
+    if (request.method !== 'POST') return json({ error: 'method_not_allowed' }, 405);
+    const body = await boundedJson(request);
+    if (!body || !validPushEndpoint(body.endpoint)) return json({ error: 'invalid_subscription' }, 400);
+    try { return json(await signPushVapid(body.endpoint, env.VAPID_PUBLIC_KEY, env.VAPID_PRIVATE_KEY, now)); }
+    catch { return json({ error: 'push_not_configured' }, 503); }
   }
   if (path === '/hub/api/push/config') {
     if (request.method !== 'GET') return json({ error: 'method_not_allowed' }, 405);
     return validPublicKey(env.VAPID_PUBLIC_KEY) ? json({ publicKey: env.VAPID_PUBLIC_KEY }) : json({ error: 'push_not_configured' }, 503);
   }
   if (delivery && request.method === 'GET') {
-    const rows = await env.HUB_DB.prepare(`SELECT p.endpoint, p.p256dh, p.auth, u.id, u.username
-      FROM push_subscriptions p JOIN users u ON u.id = p.user_id ORDER BY p.endpoint`).all();
-    return json({ subscriptions: (rows.results || []).filter(row => currentOwner({ id: row.id, username: row.username }))
-      .map(row => ({ endpoint: row.endpoint, keys: { p256dh: row.p256dh, auth: row.auth } })) });
+    const legacy = await storageFormat(env.HUB_DB) === 'legacy';
+    const selected = legacy ? 'p.subscription_json' : 'p.endpoint, p.p256dh, p.auth';
+    const order = legacy ? 'p.updated_at DESC, p.endpoint_hash ASC' : 'p.endpoint';
+    const rows = await env.HUB_DB.prepare(`SELECT ${selected}, u.id, u.username
+      FROM push_subscriptions p JOIN users u ON u.id = p.user_id ORDER BY ${order}`).all();
+    const seen = new Set();
+    const subscriptions = (rows.results || []).filter(row => currentOwner({ id: row.id, username: row.username }))
+      .map(row => storedSubscription(row, legacy)).filter(value => {
+        if (!value || seen.has(value.endpoint)) return false;
+        seen.add(value.endpoint);
+        return true;
+      });
+    return json({ subscriptions });
   }
   if (!['POST', 'DELETE'].includes(request.method) || (delivery && request.method !== 'DELETE')) return json({ error: 'method_not_allowed' }, 405);
   if (!delivery && (request.headers.get('origin') !== canonicalOrigin || request.headers.get('X-Hub-Request') !== '1'
     || (request.headers.has('sec-fetch-site') && request.headers.get('sec-fetch-site') !== 'same-origin'))) return json({ error: 'forbidden_request' }, 403);
   const body = await boundedJson(request);
   if (!body || !validPushEndpoint(body.endpoint)) return json({ error: 'invalid_subscription' }, 400);
+  if (request.method === 'POST') {
+    if (!validPublicKey(env.VAPID_PUBLIC_KEY)) return json({ error: 'push_not_configured' }, 503);
+    if (!validPushSubscription(body)) return json({ error: 'invalid_subscription' }, 400);
+  }
+  const legacy = await storageFormat(env.HUB_DB) === 'legacy';
   if (request.method === 'DELETE') {
+    const endpoint = legacy ? legacyEndpoint : 'endpoint';
     const statement = delivery
-      ? env.HUB_DB.prepare('DELETE FROM push_subscriptions WHERE endpoint = ?').bind(body.endpoint)
-      : env.HUB_DB.prepare('DELETE FROM push_subscriptions WHERE endpoint = ? AND user_id = ?').bind(body.endpoint, session.id);
+      ? env.HUB_DB.prepare(`DELETE FROM push_subscriptions WHERE ${endpoint} = ?`).bind(body.endpoint)
+      : env.HUB_DB.prepare(`DELETE FROM push_subscriptions WHERE ${endpoint} = ? AND user_id = ?`).bind(body.endpoint, session.id);
     await statement.run();
     return json({ ok: true });
   }
-  if (!validPublicKey(env.VAPID_PUBLIC_KEY)) return json({ error: 'push_not_configured' }, 503);
-  if (!validPushSubscription(body)) return json({ error: 'invalid_subscription' }, 400);
+  if (legacy) {
+    // Only NEW rows use this SHA256 hex convention. Existing keys are reused by
+    // endpoint lookup: their historical hash/serialization convention is unknown.
+    const hash = Buffer.from(await crypto.subtle.digest('SHA-256', new TextEncoder().encode(body.endpoint))).toString('hex');
+    const value = JSON.stringify({ endpoint: body.endpoint, keys: { p256dh: body.keys.p256dh, auth: body.keys.auth } });
+    const saved = await env.HUB_DB.prepare(`INSERT INTO push_subscriptions(endpoint_hash, user_id, subscription_json, created_at, updated_at)
+      SELECT COALESCE((SELECT endpoint_hash FROM push_subscriptions WHERE ${legacyEndpoint} = ? ORDER BY endpoint_hash LIMIT 1), ?), ?, ?, ?, ?
+      WHERE NOT EXISTS (SELECT 1 FROM push_subscriptions WHERE ${legacyEndpoint} = ? AND user_id <> ?)
+        AND ((SELECT COUNT(*) FROM push_subscriptions WHERE user_id = ?) < 10
+          OR EXISTS (SELECT 1 FROM push_subscriptions WHERE ${legacyEndpoint} = ? AND user_id = ?))
+      ON CONFLICT(endpoint_hash) DO UPDATE SET subscription_json = excluded.subscription_json, updated_at = excluded.updated_at
+        WHERE push_subscriptions.user_id = excluded.user_id AND ${legacyEndpoint} = ?`)
+      .bind(body.endpoint, hash, session.id, value, now, now, body.endpoint, session.id, session.id, body.endpoint, session.id, body.endpoint).run();
+    return Number(saved?.meta?.changes || 0) === 1 ? json({ ok: true }, 201) : json({ error: 'subscription_limit_or_conflict' }, 409);
+  }
   // The count and insert share a statement; concurrent requests cannot bypass the cap.
   const saved = await env.HUB_DB.prepare(`INSERT INTO push_subscriptions(endpoint, user_id, p256dh, auth, updated_at)
     SELECT ?, ?, ?, ?, ? WHERE (SELECT COUNT(*) FROM push_subscriptions WHERE user_id = ?) < 10
