@@ -1,4 +1,5 @@
 import { Buffer } from 'node:buffer';
+import { signPushVapid } from './push-vapid.js';
 
 // Delivery follows these URLs outside the Worker, so never accept arbitrary hosts.
 export function validPushEndpoint(value) {
@@ -85,12 +86,20 @@ export async function handlePush(request, env, path, session, owner, canonicalOr
     status, headers: { 'content-type': 'application/json; charset=utf-8', 'cache-control': 'no-store' },
   });
   const delivery = path === '/hub/api/push/delivery';
-  if (!delivery && !['/hub/api/push/config', '/hub/api/push/subscriptions'].includes(path)) return json({ error: 'not_found' }, 404);
-  if (delivery) {
+  const vapid = path === '/hub/api/push/delivery/vapid';
+  if (!delivery && !vapid && !['/hub/api/push/config', '/hub/api/push/subscriptions'].includes(path)) return json({ error: 'not_found' }, 404);
+  if (delivery || vapid) {
     if (!await deliveryAuthorized(request, env)) return json({ error: 'unauthorized' }, 401);
   } else {
     if (!session) return json({ error: 'unauthorized' }, 401);
     if (!owner) return json({ error: 'forbidden' }, 403);
+  }
+  if (vapid) {
+    if (request.method !== 'POST') return json({ error: 'method_not_allowed' }, 405);
+    const body = await boundedJson(request);
+    if (!body || !validPushEndpoint(body.endpoint)) return json({ error: 'invalid_subscription' }, 400);
+    try { return json(await signPushVapid(body.endpoint, env.VAPID_PUBLIC_KEY, env.VAPID_PRIVATE_KEY, now)); }
+    catch { return json({ error: 'push_not_configured' }, 503); }
   }
   if (path === '/hub/api/push/config') {
     if (request.method !== 'GET') return json({ error: 'method_not_allowed' }, 405);
