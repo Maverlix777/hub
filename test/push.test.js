@@ -15,7 +15,7 @@ async function fixture(t, layout = 'flat') {
   const db = new DatabaseSync(':memory:'); t.after(() => db.close());
   db.exec('PRAGMA foreign_keys = ON');
   db.exec(readFileSync(new URL('../migrations/0001_auth.sql', import.meta.url), 'utf8'));
-  if (layout === 'flat') db.exec(readFileSync(new URL('../migrations/0004_push_subscriptions.sql', import.meta.url), 'utf8'));
+  if (layout === 'flat') for (const name of ['0004_push_subscriptions.sql', '0005_push_native.sql']) db.exec(readFileSync(new URL(`../migrations/${name}`, import.meta.url), 'utf8'));
   else db.exec('CREATE TABLE push_subscriptions (endpoint_hash TEXT PRIMARY KEY, user_id TEXT NOT NULL REFERENCES users(id), subscription_json TEXT NOT NULL, created_at INTEGER NOT NULL, updated_at INTEGER NOT NULL)');
   const queries = [];
   const statement = (sql, values = []) => ({
@@ -250,4 +250,20 @@ test('legacy equal timestamp duplicate endpoints use deterministic historical ke
   const response = await call('delivery', { bearer: env.PUSH_DELIVERY_TOKEN });
   assert.equal(response.status, 200);
   assert.deepEqual(await response.json(), { subscriptions: [preferred] });
+});
+
+test('Worker stores, delivers and deletes apns tokens next to webpush', async t => {
+  const { call, env, db } = await fixture(t);
+  const token = 'cd'.repeat(32);
+  const apns = { type: 'apns', token };
+  assert.equal((await call('subscriptions', { user: 'owner', method: 'POST', body: { type: 'apns', token: 'short' } })).status, 400);
+  assert.equal((await call('subscriptions', { user: 'owner', method: 'POST', body: apns })).status, 201);
+  assert.equal((await call('subscriptions', { user: 'owner', method: 'POST', body: apns })).status, 201);
+  assert.equal((await call('subscriptions', { user: 'other', method: 'POST', body: apns })).status, 409);
+  assert.equal((await call('subscriptions', { user: 'owner', method: 'POST', body: subscription })).status, 201);
+  assert.equal(db.prepare('SELECT COUNT(*) AS n FROM push_subscriptions').get().n, 2);
+  const result = await (await call('delivery', { bearer: env.PUSH_DELIVERY_TOKEN })).json();
+  assert.deepEqual(result.subscriptions.sort((a, b) => (a.type ? 0 : 1) - (b.type ? 0 : 1)), [apns, subscription]);
+  assert.equal((await call('subscriptions', { user: 'owner', method: 'DELETE', body: apns })).status, 200);
+  assert.equal(db.prepare('SELECT COUNT(*) AS n FROM push_subscriptions').get().n, 1);
 });
