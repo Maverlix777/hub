@@ -39,3 +39,7 @@ jobs:
         env:
           HUB_PUSH_URL: https://hub.kolobovdjp.org/hub/api/push/delivery
           PUSH_DELIVERY_TOKEN: ${{ secrets.PUSH_DELIVERY_TOKEN }}
+          # Empty until the owner adds the APNs key secrets; then iOS app tokens are skipped with a log line.
+          APNS_KEY: ${{ secrets.APNS_KEY }}
+          APNS_KEY_ID: ${{ secrets.APNS_KEY_ID }}
+          APNS_TEAM_ID: ${{ secrets.APNS_TEAM_ID }}
