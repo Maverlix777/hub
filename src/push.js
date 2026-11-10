@@ -1,5 +1,6 @@
 import { Buffer } from 'node:buffer';
 import { signPushVapid } from './push-vapid.js';
+import { bearerAuthorized } from './bearer.js';
 
 // Delivery follows these URLs outside the Worker, so never accept arbitrary hosts.
 export function validPushEndpoint(value) {
@@ -36,14 +37,7 @@ export function validPublicKey(value) {
 }
 
 async function deliveryAuthorized(request, env) {
-  if (typeof env.PUSH_DELIVERY_TOKEN !== 'string' || env.PUSH_DELIVERY_TOKEN.length < 32) return false;
-  const supplied = request.headers.get('authorization');
-  if (!supplied?.startsWith('Bearer ') || supplied.length > 512) return false;
-  const digest = async value => new Uint8Array(await crypto.subtle.digest('SHA-256', new TextEncoder().encode(value)));
-  const [left, right] = await Promise.all([digest(supplied.slice(7)), digest(env.PUSH_DELIVERY_TOKEN)]);
-  let difference = 0;
-  for (let index = 0; index < left.length; index++) difference |= left[index] ^ right[index];
-  return difference === 0;
+  return bearerAuthorized(request, env.PUSH_DELIVERY_TOKEN);
 }
 
 async function boundedJson(request) {
