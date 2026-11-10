@@ -48,7 +48,7 @@ function post(body, { token = SECRET, raw, e = env, headers = {} } = {}) {
   if (token !== null) h.authorization = `Bearer ${token}`;
   return worker.fetch(new Request(`${origin}/hub/api/presence`, { method: 'POST', headers: h, body: raw ?? JSON.stringify(body) }), e);
 }
-const get = (who, e = env) => worker.fetch(new Request(`${origin}/hub/api/presence`, { headers: who ? { cookie: who.cookie } : {} }), e);
+const get = (who, e = env, headers = {}) => worker.fetch(new Request(`${origin}/hub/api/presence`, { headers: { ...(who ? { cookie: who.cookie } : {}), ...headers } }), e);
 const count = () => sqlite.prepare('SELECT COUNT(*) AS n FROM agent_presence').get().n;
 const clear = () => sqlite.exec('DELETE FROM agent_presence');
 
@@ -141,12 +141,17 @@ test('presence POST: 201st new key is 409, existing key still updates', async ()
   assert.equal(count(), 200);
 });
 
-test('presence GET: 401 anonymous, 403 non-owner, 200 owner; bearer is not accepted', async () => {
+test('presence GET: owner session or valid bearer may read; anonymous and non-owner still denied', async () => {
   clear();
   assert.equal((await get(null)).status, 401);
   assert.equal((await get(guest)).status, 403);
   const viaBearer = await worker.fetch(new Request(`${origin}/hub/api/presence`, { headers: { authorization: `Bearer ${SECRET}` } }), env);
-  assert.equal(viaBearer.status, 401);
+  assert.equal(viaBearer.status, 200);
+  assert.equal(viaBearer.headers.get('cache-control'), 'no-store');
+  assert.deepEqual(await viaBearer.json(), []);
+  const guestBearer = await get(guest, env, { authorization: `Bearer ${SECRET}` });
+  assert.equal(guestBearer.status, 200);
+  assert.deepEqual(await guestBearer.json(), []);
   const r = await get(owner);
   assert.equal(r.status, 200);
   assert.equal(r.headers.get('cache-control'), 'no-store');
@@ -167,6 +172,84 @@ test('presence GET: sorted, stale flag at 15 minutes, rows older than 24h hidden
   assert.deepEqual(body.map((r) => r.stale), [true, false, true, false]);
   assert.equal(body[3].card, 'T-9');
   assert.ok(!JSON.stringify(body).includes(SECRET));
+  const tokenResponse = await get(null, env, { authorization: `Bearer ${SECRET}` });
+  assert.equal(tokenResponse.status, 200);
+  assert.equal(tokenResponse.headers.get('cache-control'), 'no-store');
+  const tokenText = await tokenResponse.text();
+  assert.deepEqual(JSON.parse(tokenText), body);
+  assert.ok(!tokenText.includes(SECRET));
+  assert.ok(!JSON.stringify([...tokenResponse.headers]).includes(SECRET));
+  assert.equal(count(), 5, 'GET must not delete rows hidden by the 24-hour filter');
+});
+
+test('presence GET: invalid bearer never grants, owner session remains independent', async () => {
+  clear();
+  const invalid = [
+    ['wrong', `Bearer ${'x'.repeat(40)}`],
+    ['short', 'Bearer short'],
+    ['missing-space', `Bearer${SECRET}`],
+    ['wrong-scheme', `Basic ${SECRET}`],
+    ['wrong-case', `bearer ${SECRET}`],
+    ['extra-space', `Bearer  ${SECRET}`],
+    ['extra-part', `Bearer ${SECRET} extra`],
+    ['missing-value', 'Bearer'],
+    ['oversize', `Bearer ${'s'.repeat(600)}`],
+  ];
+  for (const [label, authorization] of invalid) {
+    for (const [identity, expected] of [[null, 401], [guest, 403], [owner, 200]]) {
+      const response = await get(identity, env, { authorization });
+      assert.equal(response.status, expected, label);
+      assert.equal(response.headers.get('cache-control'), 'no-store', label);
+      assert.deepEqual(await response.json(), expected === 200 ? [] : { error: expected === 401 ? 'unauthorized' : 'forbidden' });
+    }
+  }
+  // Even an exact matching configured secret cannot bypass the existing 512-byte header cap.
+  const oversizeSecret = 's'.repeat(506);
+  const oversizeEnv = { ...env, PRESENCE_TOKEN: oversizeSecret };
+  assert.equal((await get(null, oversizeEnv, { authorization: `Bearer ${oversizeSecret}` })).status, 401);
+  assert.equal((await get(guest, oversizeEnv, { authorization: `Bearer ${oversizeSecret}` })).status, 403);
+  assert.equal((await get(owner, oversizeEnv, { authorization: `Bearer ${oversizeSecret}` })).status, 200);
+});
+
+test('presence GET: unconfigured token still allows owner; POST keeps its separate requirements', async () => {
+  clear();
+  const { PRESENCE_TOKEN, ...none } = env;
+  for (const unconfigured of [none, { ...env, PRESENCE_TOKEN: null }, { ...env, PRESENCE_TOKEN: 'short' }]) {
+    for (const [identity, expected] of [[null, 401], [guest, 403], [owner, 200]]) {
+      const response = await get(identity, unconfigured, { authorization: 'Bearer short' });
+      assert.equal(response.status, expected);
+      assert.equal(response.headers.get('cache-control'), 'no-store');
+    }
+    const response = await post(valid, { e: unconfigured, headers: { cookie: owner.cookie } });
+    assert.equal(response.status, 503);
+    assert.deepEqual(await response.json(), { error: 'not_configured' });
+  }
+  assert.equal((await post(valid, { token: null, headers: { cookie: owner.cookie } })).status, 401,
+    'owner session must not replace the POST bearer requirement');
+  assert.equal(count(), 0);
+});
+
+test('presence GET: bearer read leaves SQLite rows untouched; POST still purges only after seven days', async () => {
+  clear();
+  const now = Date.now();
+  const day = 86400_000;
+  const insert = sqlite.prepare('INSERT INTO agent_presence (owner, agent, machine, state, card, note, updated_at) VALUES (?,?,?,?,?,?,?)');
+  insert.run('old', 'a', 'm', 'idle', null, null, now - 8 * day);
+  insert.run('mid', 'a', 'm', 'idle', null, null, now - 2 * day);
+  insert.run('fresh', 'a', 'm', 'working', 'T-1', 'synthetic', now - 60_000);
+  const rows = () => sqlite.prepare('SELECT * FROM agent_presence ORDER BY owner, agent, machine').all();
+  const beforeRows = rows();
+  const beforeChanges = sqlite.prepare('SELECT total_changes() AS n').get().n;
+  const response = await get(null, env, { authorization: `Bearer ${SECRET}` });
+  assert.equal(response.status, 200);
+  const body = await response.json();
+  assert.deepEqual(body.map(row => row.owner), ['fresh']);
+  assert.equal(body[0].stale, false);
+  assert.deepEqual(rows(), beforeRows);
+  assert.equal(sqlite.prepare('SELECT total_changes() AS n').get().n, beforeChanges,
+    'sessionless bearer GET must not write SQLite');
+  assert.equal((await post(valid)).status, 200);
+  assert.deepEqual(rows().map(row => row.owner), ['fresh', 'max', 'mid']);
 });
 
 test('presence: other methods get 405 with allow header', async () => {

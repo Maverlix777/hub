@@ -74,8 +74,9 @@ export async function handlePresence(request, env, session, owner, now) {
     return json({ ok: true });
   }
   if (request.method === 'GET') {
-    if (!session) return json({ error: 'unauthorized' }, 401);
-    if (!owner) return json({ error: 'forbidden' }, 403);
+    if (!(session && owner) && !await bearerAuthorized(request, env.PRESENCE_TOKEN)) {
+      return json({ error: session ? 'forbidden' : 'unauthorized' }, session ? 403 : 401);
+    }
     const rows = await env.HUB_DB.prepare(`SELECT owner, agent, machine, state, card, note, updated_at
       FROM agent_presence WHERE updated_at >= ? ORDER BY owner, agent, machine`).bind(now - DAY).all();
     return json((rows.results || []).map(r => ({ ...r, stale: now - r.updated_at > STALE_MS })));
