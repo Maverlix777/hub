@@ -62,6 +62,12 @@ function createServer() { return http.createServer((req, res) => {
     res.end(JSON.stringify({ items: [], nextCursor: null, delivery: { status: 'not_configured' } }));
     return;
   }
+  // Synthetic owner response for the agent presence panel on the board page.
+  if (req.method === 'GET' && url === PREFIX + 'api/presence') {
+    res.writeHead(200, { 'content-type': 'application/json', 'cache-control': 'no-store' });
+    res.end('[]');
+    return;
+  }
   let rel = url.slice(PREFIX.length);
   // Model only the authorized-owner page route; real Worker tests own ACL checks.
   if (rel === '') rel = 'apps/board.html';
