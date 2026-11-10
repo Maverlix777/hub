@@ -97,15 +97,129 @@ test('board api: anonymous 401, non-owner 403 even with paid tier', async () => 
 
 test('board api: owner gets cards, token goes only to api.github.com', async () => {
   const calls = [];
-  globalThis.fetch = async (url, init) => { calls.push({ url: String(url), auth: init.headers.authorization }); return new Response(SAMPLE); };
+  globalThis.fetch = async (url, init) => {
+    calls.push({ url: String(url), auth: init.headers.authorization });
+    return new URL(url).pathname.endsWith('/issues') ? Response.json([]) : new Response(SAMPLE);
+  };
   const response = await get('/hub/api/board', owner);
   assert.equal(response.status, 200);
   assert.equal(response.headers.get('cache-control'), 'no-store');
   const body = await response.json();
   assert.deepEqual(body.counts, { ideas: 2, planned: 2, progress: 4, review: 2, done: 4, questions: 4 });
-  assert.equal(calls.length, 2);
+  assert.equal(calls.length, 3); // Two Markdown reads plus one complete empty Issue census.
+  assert.equal(calls.filter((c) => new URL(c.url).pathname.endsWith('/issues')).length, 1);
   assert.ok(calls.every((c) => c.url.startsWith('https://api.github.com/repos/')));
   assert.ok(!JSON.stringify(body).includes('test-token'));
+});
+
+
+test('board operations: owner GET returns complete Issue census without changing Markdown counts', async (t) => {
+  const previousFetch = globalThis.fetch;
+  t.after(() => { globalThis.fetch = previousFetch; });
+  const calls = [];
+  const serverValue = 'TEST_ONLY_SERVER_VALUE';
+  const rows = [
+    { number: 11, state: 'open', title: '<img src=x onerror=alert(1)>', labels: [{ name: 'worker:codex' }, { name: 'worker:codex' }, { name: 'worker:claude' }, { name: 'blocked:human' }], html_url: 'https://attacker.invalid/PRIVATE_SENTINEL', body: 'PRIVATE_SENTINEL' },
+    { number: 12, state: 'open', title: 'CI wait', labels: [{ name: 'worker:codex' }, { name: 'cloud:blocked' }] },
+    { number: 13, state: 'open', title: 'Unassigned owner action', labels: [{ name: 'blocked:human' }] },
+    { number: 14, state: 'closed', title: 'Closed', labels: [{ name: 'worker:claude' }, { name: 'blocked:human' }] },
+    { number: 15, state: 'open', title: 'Pull request', labels: [{ name: 'worker:codex' }, { name: 'blocked:human' }], pull_request: {} },
+    { number: 16, state: 'open', title: 'Unassigned ordinary issue', labels: [] },
+  ];
+  globalThis.fetch = async (url, init) => {
+    calls.push(String(url));
+    assert.equal(init.headers.authorization, `Bearer ${serverValue}`);
+    assert.equal(init.redirect, 'manual');
+    if (new URL(url).pathname.endsWith('/issues')) {
+      assert.equal(String(url), 'https://api.github.com/repos/Maverlix777/agent-handoffs/issues?state=open&sort=created&direction=asc&per_page=100&page=1');
+      return Response.json(rows);
+    }
+    assert.match(String(url), /^https:\/\/api\.github\.com\/repos\/Maverlix777\/agent-handoffs\/contents\//);
+    return new Response(SAMPLE);
+  };
+  const before = Date.now();
+  const response = await worker.fetch(new Request(`${origin}/hub/api/board`, { headers: { cookie: owner.cookie } }),
+    { ...env, BOARD_GITHUB_TOKEN: serverValue, BOARD_PRAXIS_URL: 'https://praxis.example.test/dashboard?view=queue#now' });
+  assert.equal(response.status, 200);
+  assert.equal(response.headers.get('cache-control'), 'no-store');
+  const body = await response.json();
+  assert.deepEqual(body.counts, { ideas: 2, planned: 2, progress: 4, review: 2, done: 4, questions: 4 });
+  assert.equal(body.operations?.status, 'ok'); // Baseline route has no operations, a behavioral RED.
+  assert.deepEqual(Object.keys(body.operations).sort(), ['as_of', 'human_blockers', 'open_issues', 'praxis_url', 'status', 'workers']);
+  assert.equal(body.operations.open_issues, 4);
+  assert.deepEqual(body.operations.workers, [{ label: 'worker:claude', count: 1 }, { label: 'worker:codex', count: 2 }]);
+  assert.deepEqual(body.operations.human_blockers, [
+    { number: 11, title: '<img src=x onerror=alert(1)>', url: 'https://github.com/Maverlix777/agent-handoffs/issues/11' },
+    { number: 13, title: 'Unassigned owner action', url: 'https://github.com/Maverlix777/agent-handoffs/issues/13' },
+  ]);
+  assert.equal(body.operations.praxis_url, 'https://praxis.example.test/dashboard?view=queue#now');
+  assert.ok(Date.parse(body.operations.as_of) >= before && Date.parse(body.operations.as_of) <= Date.now());
+  assert.equal(calls.length, 3);
+  assert.equal(calls.filter((url) => new URL(url).pathname.endsWith('/issues')).length, 1);
+  assert.ok(!JSON.stringify(body).includes(serverValue));
+  assert.ok(!JSON.stringify(body).includes('PRIVATE_SENTINEL'));
+});
+
+
+test('board operations: unavailable census preserves owner cards and independent Praxis link', async (t) => {
+  const previousFetch = globalThis.fetch;
+  t.after(() => { globalThis.fetch = previousFetch; });
+  const observed = [];
+  for (const failure of ['429', 'throw']) {
+    globalThis.fetch = async (url, init) => {
+      assert.equal(init.headers.authorization, 'Bearer TEST_ONLY_SERVER_VALUE');
+      assert.equal(init.redirect, 'manual');
+      if (new URL(url).pathname.endsWith('/issues')) {
+        if (failure === 'throw') throw new Error('PRIVATE_TRANSPORT_SENTINEL');
+        return new Response('PRIVATE_TRANSPORT_SENTINEL', { status: 429 });
+      }
+      assert.match(String(url), /^https:\/\/api\.github\.com\/repos\/Maverlix777\/agent-handoffs\/contents\//);
+      return new Response(SAMPLE);
+    };
+    const response = await worker.fetch(new Request(`${origin}/hub/api/board`, { headers: { cookie: owner.cookie } }),
+      { ...env, BOARD_GITHUB_TOKEN: 'TEST_ONLY_SERVER_VALUE', BOARD_PRAXIS_URL: 'https://praxis.example.test/queue' });
+    assert.equal(response.status, 200);
+    assert.equal(response.headers.get('cache-control'), 'no-store');
+    const body = await response.json();
+    assert.deepEqual(body.counts, { ideas: 2, planned: 2, progress: 4, review: 2, done: 4, questions: 4 });
+    assert.equal(body.cards[0].title, 'Alpha a | b task');
+    assert.ok(!JSON.stringify(body).includes('TEST_ONLY_SERVER_VALUE'));
+    assert.ok(!JSON.stringify(body).includes('PRIVATE_TRANSPORT_SENTINEL'));
+    observed.push({ failure, operations: body.operations });
+  }
+  const expected = { status: 'unavailable', as_of: null, open_issues: null, workers: [], human_blockers: [], praxis_url: 'https://praxis.example.test/queue' };
+  assert.deepEqual(observed, [{ failure: '429', operations: expected }, { failure: 'throw', operations: expected }]);
+});
+
+test('board operations: actual targeted outbox POST never invokes the Issue census', async (t) => {
+  const previousFetch = globalThis.fetch;
+  t.after(() => { globalThis.fetch = previousFetch; });
+  sqlite.exec(await readFile(new URL('../migrations/0002_owner_outbox.sql', import.meta.url), 'utf8'));
+  sqlite.exec(await readFile(new URL('../migrations/0003_owner_issues.sql', import.meta.url), 'utf8'));
+  const calls = [];
+  globalThis.fetch = async (url, init) => {
+    calls.push(String(url));
+    assert.equal(init.headers.authorization, 'Bearer TEST_ONLY_SERVER_VALUE');
+    assert.match(String(url), /^https:\/\/api\.github\.com\/repos\/Maverlix777\/agent-handoffs\/contents\//);
+    return new Response(SAMPLE);
+  };
+  const bytes = new TextEncoder().encode(SAMPLE);
+  const revision = Buffer.from(await crypto.subtle.digest('SHA-1', Buffer.concat([Buffer.from(`blob ${bytes.length}\0`), bytes]))).toString('hex');
+  const payload = { idempotencyKey: crypto.randomUUID(), kind: 'answer', text: 'Synthetic targeted reply',
+    target: { sourcePath: 'proposals/ai-factory-jobforge/BOARD.md', taskId: 'T-1', revision } };
+  const response = await worker.fetch(new Request(`${origin}/hub/api/outbox`, {
+    method: 'POST', headers: { cookie: owner.cookie, origin, 'content-type': 'application/json', 'X-Hub-Request': '1', 'CF-Connecting-IP': '192.0.2.1' },
+    body: JSON.stringify(payload),
+  }), { ...env, BOARD_GITHUB_TOKEN: 'TEST_ONLY_SERVER_VALUE', RATE_LIMIT_HMAC_KEY: 'TEST_ONLY_RATE_LIMIT_VALUE_32_CHARACTERS' });
+  assert.equal(response.status, 201);
+  assert.equal(response.headers.get('cache-control'), 'no-store');
+  const body = await response.json();
+  assert.equal(body.item.status, 'pending');
+  assert.equal(body.item.text, payload.text);
+  assert.deepEqual(body.item.target, payload.target);
+  assert.equal(sqlite.prepare('SELECT count(*) n FROM owner_outbox').get().n, 1);
+  assert.equal(calls.length, 2);
+  assert.equal(calls.filter((url) => new URL(url).pathname.endsWith('/issues')).length, 0);
 });
 
 test('board api: no token or no owner configured fails closed', async () => {
@@ -138,6 +252,7 @@ test('telemetry authorization precedes all reads and optional failure preserves 
   let calls = 0;
   globalThis.fetch = async (url) => {
     calls++;
+    if (new URL(url).pathname.endsWith('/issues')) return Response.json([]);
     return String(url).endsWith('.json') ? new Response('invalid') : new Response(SAMPLE);
   };
   const request = (who) => new Request(`${origin}/hub/api/board`, { headers: who ? { cookie: who.cookie } : {} });
@@ -152,10 +267,10 @@ test('telemetry authorization precedes all reads and optional failure preserves 
   assert.deepEqual(result.counts, { ideas: 2, planned: 2, progress: 4, review: 2, done: 4, questions: 4 });
   assert.equal(result.cards[0].who, 'x');
   assert.equal(result.telemetry.status, 'unknown');
-  assert.equal(calls, 3);
+  assert.equal(calls, 4); // Two Markdown reads, telemetry, and one Issue census.
   // The artifact exists before the request; do not timestamp it later inside fetch.
   const artifactTime = new Date(Date.now() - 1000).toISOString();
-  globalThis.fetch = async (url) => String(url).endsWith('.json') ? Response.json({ telemetry: {
+  globalThis.fetch = async (url) => new URL(url).pathname.endsWith('/issues') ? Response.json([]) : String(url).endsWith('.json') ? Response.json({ telemetry: {
     schema_version: 1, producer: 'local-manager-telemetry', as_of: artifactTime,
     events: [], gemma: { results: [] }, gpu: { samples: [] },
   } }) : new Response(SAMPLE);

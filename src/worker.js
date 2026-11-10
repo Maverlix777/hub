@@ -1,6 +1,7 @@
 import { Buffer } from 'node:buffer';
 import { expectedOrigins, wellKnownResponse } from './native-app.js';
 import { loadBoardSources } from './board-sources.js';
+import { loadBoardOperations } from './board-operations.js';
 import { readTelemetry } from './telemetry.js';
 import { validatePayload, existingSubmission, enqueue, listSubmissions } from './outbox.js';
 import { readIssueResponses } from './issue-responses.js';
@@ -433,7 +434,8 @@ async function api(request, env, path, session, webauthn, now, canonicalOrigin, 
     if (!session) return json({ error: 'unauthorized' }, 401);
     if (!isBoardOwner(session, env)) return json({ error: 'forbidden' }, 403);
     const result = await loadBoard(env);
-    return result.error ? json({ error: result.error }, 503) : json(result.board);
+    if (result.error) return json({ error: result.error }, 503);
+    return json({ ...result.board, operations: await loadBoardOperations(env) });
   }
   if (path === '/hub/api/outbox') {
     if (!session) return json({ error: 'unauthorized' }, 401);
