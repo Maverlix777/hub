@@ -15,6 +15,7 @@ import urllib.error
 import urllib.request
 
 STATES = ("working", "idle", "blocked", "done")
+USER_AGENT = "hub-presence/1"
 
 
 class Fail(Exception):
@@ -59,7 +60,7 @@ def send(args):
         body["note"] = args.note
     req = urllib.request.Request(
         url, data=json.dumps(body).encode("utf-8"), method="POST",
-        headers={"Authorization": "Bearer " + token, "Content-Type": "application/json"},
+        headers={"Authorization": "Bearer " + token, "Content-Type": "application/json", "User-Agent": USER_AGENT},
     )
     try:
         with urllib.request.urlopen(req, timeout=5) as resp:
