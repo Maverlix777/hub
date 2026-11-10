@@ -44,11 +44,13 @@ class QuietFail(unittest.TestCase):
 
 class Handler(http.server.BaseHTTPRequestHandler):
     seen = []
+    user_agents = []
     status = 200
 
     def do_POST(self):
         body = self.rfile.read(int(self.headers.get("content-length", 0)))
         Handler.seen.append((self.headers.get("authorization"), self.headers.get("content-type"), json.loads(body)))
+        Handler.user_agents.append(self.headers.get("user-agent"))
         self.send_response(Handler.status)
         self.end_headers()
         self.wfile.write(b'{"ok":true}')
@@ -60,6 +62,7 @@ class Handler(http.server.BaseHTTPRequestHandler):
 class Wire(unittest.TestCase):
     def setUp(self):
         Handler.seen = []
+        Handler.user_agents = []
         Handler.status = 200
         self.srv = http.server.HTTPServer(("127.0.0.1", 0), Handler)
         threading.Thread(target=self.srv.serve_forever, daemon=True).start()
@@ -83,6 +86,13 @@ class Wire(unittest.TestCase):
                 HUB_PRESENCE_OWNER="dani", HUB_PRESENCE_AGENT="codex", HUB_PRESENCE_MACHINE="m2")
         self.assertEqual(r.returncode, 0, r.stderr)
         self.assertEqual(Handler.seen[0][2], {"owner": "dani", "agent": "codex", "machine": "m2", "state": "idle"})
+
+    def test_sends_explicit_user_agent_instead_of_python_urllib(self):
+        r = run(BASE, HUB_PRESENCE_URL=self.url, HUB_PRESENCE_TOKEN=TOKEN)
+        self.assertEqual(r.returncode, 0, r.stderr)
+        user_agent = Handler.user_agents[0]
+        self.assertEqual(user_agent, "hub-presence/1")
+        self.assertFalse(user_agent.startswith("Python-urllib"))
 
     def test_server_error_quiet_fail_zero_loud_nonzero(self):
         Handler.status = 401
