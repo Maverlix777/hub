@@ -5,6 +5,7 @@ import { readTelemetry } from './telemetry.js';
 import { validatePayload, existingSubmission, enqueue, listSubmissions } from './outbox.js';
 import { readIssueResponses } from './issue-responses.js';
 import { handlePush } from './push.js';
+import { handlePresence } from './presence.js';
 import { listThreads, readThread, replyToThread } from './messenger.js';
 import {
   generateAuthenticationOptions,
@@ -427,6 +428,7 @@ async function api(request, env, path, session, webauthn, now, canonicalOrigin, 
       })
       : json({ error: 'unauthorized' }, 401);
   }
+  if (path === '/hub/api/presence') return handlePresence(request, env, session, isBoardOwner(session, env), now);
   if (request.method === 'GET' && path === '/hub/api/board') {
     if (!session) return json({ error: 'unauthorized' }, 401);
     if (!isBoardOwner(session, env)) return json({ error: 'forbidden' }, 403);
@@ -738,7 +740,9 @@ export function createWorker(webauthn = {
       }
       // Delivery services use bearer authentication, independent of browser sessions.
       const pushDeliveryService = pathname === '/hub/api/push/delivery' || pathname === '/hub/api/push/delivery/vapid';
-      if (pathname.startsWith('/hub/api/') && request.method === 'POST' && !pushDeliveryService && !originAllowed(request, canonicalOrigin)) {
+      // Agent presence reports are bearer-authenticated POSTs from scripts, not browser sessions.
+      const presenceReport = pathname === '/hub/api/presence' && request.method === 'POST';
+      if (pathname.startsWith('/hub/api/') && request.method === 'POST' && !pushDeliveryService && !presenceReport && !originAllowed(request, canonicalOrigin)) {
         return json({ error: 'forbidden_origin' }, 403);
       }
       // Browsers update service workers after sessions expire. This script contains no private data.
@@ -746,7 +750,7 @@ export function createWorker(webauthn = {
         const response = await env.ASSETS.fetch(withPath(request, '/push-sw.js'));
         return new Response(response.body, { status: response.status, headers: { ...Object.fromEntries(response.headers), ...noStore } });
       }
-      const session = pushDeliveryService ? null : await loadSession(request, env, now);
+      const session = pushDeliveryService || presenceReport ? null : await loadSession(request, env, now);
       if (session && session.expiresAt - now < SESSION_TTL_MS - SESSION_RENEW_AFTER_MS) {
         // Best effort: a failed renewal must never break an otherwise valid request.
         try {

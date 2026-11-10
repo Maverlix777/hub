@@ -471,3 +471,56 @@
   document.addEventListener('visibilitychange',() => { if (!document.hidden) load(); });
   load();
 })();
+// Agent presence panel. Separate from the board loader: a failure here never touches the board.
+(function () {
+  'use strict';
+  const list = document.getElementById('presence-list'); const count = document.getElementById('presence-count');
+  if (!list || !count) return;
+  const STATES = { working: 'работает', idle: 'свободен', blocked: 'застрял', done: 'готово' };
+  function el(tag, className, text) {
+    const node = document.createElement(tag);
+    if (className) node.className = className;
+    if (text !== undefined) node.textContent = String(text);
+    return node;
+  }
+  function ago(ms) {
+    const minutes = Math.max(0, Math.floor((Date.now() - ms) / 60000));
+    if (minutes < 1) return 'только что';
+    if (minutes < 60) return `${minutes} мин назад`;
+    const hours = Math.floor(minutes / 60);
+    return hours < 24 ? `${hours} ч назад` : `${Math.floor(hours / 24)} дн назад`;
+  }
+  function render(rows) {
+    count.textContent = String(rows.length);
+    if (!rows.length) { list.replaceChildren(el('p', 'empty', 'Отметок нет')); return; }
+    const groups = new Map();
+    for (const row of rows) { if (!groups.has(row.owner)) groups.set(row.owner, []); groups.get(row.owner).push(row); }
+    const nodes = [];
+    for (const [owner, items] of groups) {
+      const group = el('div', 'presence-group'); group.append(el('h3', 'presence-owner', owner));
+      for (const row of items) {
+        const line = el('p', row.stale ? 'presence-row stale' : 'presence-row');
+        const parts = [`${row.agent} · ${row.machine}`, row.card || '—', [STATES[row.state] || row.state, row.note].filter(Boolean).join(': '), ago(row.updated_at)];
+        line.textContent = parts.join(' · ');
+        group.append(line);
+      }
+      nodes.push(group);
+    }
+    list.replaceChildren(...nodes);
+  }
+  async function load() {
+    try {
+      const response = await fetch('/hub/api/presence', { credentials: 'same-origin', cache: 'no-store' });
+      if (!response.ok) throw new Error(String(response.status));
+      const rows = await response.json();
+      if (!Array.isArray(rows)) throw new Error('shape');
+      render(rows);
+    } catch {
+      count.textContent = '—';
+      list.replaceChildren(el('p', 'error', 'Не удалось загрузить отметки агентов.'));
+    }
+  }
+  window.setInterval(() => { if (!document.hidden) load(); }, 60000);
+  document.addEventListener('visibilitychange', () => { if (!document.hidden) load(); });
+  load();
+})();
