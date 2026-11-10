@@ -1,7 +1,9 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { readFile } from 'node:fs/promises';
-import { createECDH, createHash, createPrivateKey, sign } from 'node:crypto';
+import { createECDH, createHash, createPrivateKey, generateKeyPairSync, sign } from 'node:crypto';
+import { EventEmitter } from 'node:events';
+import { createRequire, syncBuiltinESMExports } from 'node:module';
 import { sendPush as runSender } from '../tools/send-push.mjs';
 
 // Deterministic synthetic scalar1/2 fixtures; never actual credentials.
@@ -27,6 +29,77 @@ async function sendPush(options) {
   return runSender({ ...options, fetchImpl: async (url, request) => url.endsWith('/delivery/vapid')
     ? Response.json(signerReceipt(JSON.parse(request.body).endpoint)) : fetchImpl(url, request) });
 }
+
+test('sender APNs alert preserves text and URL without requesting a sound', async () => {
+  let payload;
+  const result = await runSender({ env, log: () => {},
+    fetchImpl: async () => list([{ type: 'apns', token: 'ab'.repeat(32) }]),
+    sendNotification: () => assert.fail('webpush called'),
+    sendApns: async (_, body) => { payload = JSON.parse(body); return { status: 200 }; },
+  });
+  assert.equal(result.sent, 1);
+  assert.deepEqual(payload.aps.alert, { title: 'От агентов', body: 'Есть обновление. Открой хаб.' });
+  assert.equal(payload.url, '/');
+  assert.equal(Object.hasOwn(payload.aps, 'sound'), false);
+});
+
+test('sender closes its internal APNs session when expired-token cleanup fails', async () => {
+  const http2 = createRequire(import.meta.url)('node:http2');
+  const originalConnect = http2.connect;
+  const { privateKey } = generateKeyPairSync('ec', { namedCurve: 'P-256' });
+  const session = new EventEmitter();
+  let connects = 0;
+  let closes = 0;
+  session.request = () => {
+    const request = new EventEmitter();
+    request.setTimeout = () => request;
+    request.resume = () => request;
+    request.end = () => queueMicrotask(() => {
+      request.emit('response', { ':status': 410 });
+      request.emit('end');
+    });
+    return request;
+  };
+  session.close = () => { closes++; };
+  try {
+    http2.connect = () => { connects++; return session; };
+    syncBuiltinESMExports();
+    await assert.rejects(runSender({ env: { ...env,
+      APNS_KEY: privateKey.export({ type: 'pkcs8', format: 'pem' }),
+      APNS_KEY_ID: 'SYNTHETIC_KEY', APNS_TEAM_ID: 'SYNTHETIC_TEAM',
+    }, log: () => {}, sendNotification: () => assert.fail('webpush called'),
+    fetchImpl: async (_, options) => options.method === 'DELETE'
+      ? new Response(null, { status: 500 })
+      : list([{ type: 'apns', token: 'ab'.repeat(32) }]),
+    }), /Web Push subscription API returned HTTP 500\./);
+    assert.equal(connects, 1);
+    assert.equal(closes, 1);
+  } finally {
+    http2.connect = originalConnect;
+    syncBuiltinESMExports();
+  }
+});
+
+test('sender retains APNs subscriptions on HTTP 400 and reports delivery failure', async () => {
+  const token = 'ab'.repeat(32);
+  const deletes = [];
+  const logs = [];
+  const outcome = await runSender({ env, log: value => logs.push(value),
+    fetchImpl: async (url, options) => {
+      assert.equal(url, env.HUB_PUSH_URL);
+      if (options.method === 'DELETE') {
+        deletes.push(JSON.parse(options.body));
+        return new Response(null, { status: 204 });
+      }
+      return list([{ type: 'apns', token }]);
+    },
+    sendNotification: () => assert.fail('webpush called'),
+    sendApns: async value => { assert.equal(value, token); return { status: 400 }; },
+  }).then(result => ({ result }), error => ({ error }));
+  assert.deepEqual(deletes, []);
+  assert.match(outcome.error?.message || '', /^Web Push delivery failed for one or more subscriptions\.$/);
+  assert.deepEqual(logs, ['Web Push: sent=0, expired=0, failed=1.']);
+});
 
 test('sender skips missing configuration without any network request', async () => {
   let calls = 0;

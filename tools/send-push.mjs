@@ -182,59 +182,62 @@ export async function sendPush({ env = process.env, fetchImpl = fetch, sendNotif
     }
     return receipt;
   };
-  // Detect initial signer/configuration failures before the first delivery.
-  for (const subscription of subscriptions) {
-    if (subscription.type !== 'apns' && !cache.has(new URL(subscription.endpoint).origin)) await authorize(subscription);
-  }
-  const apnsPayload = JSON.stringify({ aps: { alert: { title: 'От агентов', body: 'Есть обновление. Открой хаб.' }, sound: 'default' }, url: '/' });
   let apnsSkipped = 0;
-  for (const subscription of subscriptions) {
-    if (subscription.type === 'apns') {
-      if (!sendApns) { apnsSkipped++; continue; }
+  try {
+    // Detect initial signer/configuration failures before the first delivery.
+    for (const subscription of subscriptions) {
+      if (subscription.type !== 'apns' && !cache.has(new URL(subscription.endpoint).origin)) await authorize(subscription);
+    }
+    const apnsPayload = JSON.stringify({ aps: { alert: { title: 'От агентов', body: 'Есть обновление. Открой хаб.' } }, url: '/' });
+    for (const subscription of subscriptions) {
+      if (subscription.type === 'apns') {
+        if (!sendApns) { apnsSkipped++; continue; }
+        try {
+          const { status } = await sendApns(subscription.token, apnsPayload);
+          if (status === 200) result.sent++;
+          else if (status === 410) {
+            // Only 410 Unregistered proves that this token should be removed.
+            await request({ method: 'DELETE', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ type: 'apns', token: subscription.token }) });
+            result.expired++;
+          } else result.failed++;
+        } catch (error) {
+          if (error?.message?.startsWith('Web Push ')) throw error;
+          result.failed++;
+        }
+        continue;
+      }
+      let receipt;
+      try { receipt = await authorize(subscription); }
+      catch (error) {
+        log(`Web Push: sent=${result.sent}, expired=${result.expired}, failed=${result.failed}.`);
+        throw error;
+      }
+      const publicHash = receipt.publicKeySha256;
+      const options = { vapidDetails: null, headers: { Authorization: receipt.authorization },
+        timeout: 15000, TTL: 3600, urgency: 'normal' };
       try {
-        const { status } = await sendApns(subscription.token, apnsPayload);
-        if (status === 200) result.sent++;
-        else if (status === 410 || status === 400) {
-          // 410 Unregistered / 400 (BadDeviceToken etc.): drop the token so it is not retried forever.
-          await request({ method: 'DELETE', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ type: 'apns', token: subscription.token }) });
-          result.expired++;
-        } else result.failed++;
+        await sendNotification(subscription, payload, options);
+        result.sent++;
       } catch (error) {
-        if (error?.message?.startsWith('Web Push ')) throw error;
-        result.failed++;
-      }
-      continue;
-    }
-    let receipt;
-    try { receipt = await authorize(subscription); }
-    catch (error) {
-      log(`Web Push: sent=${result.sent}, expired=${result.expired}, failed=${result.failed}.`);
-      throw error;
-    }
-    const publicHash = receipt.publicKeySha256;
-    const options = { vapidDetails: null, headers: { Authorization: receipt.authorization },
-      timeout: 15000, TTL: 3600, urgency: 'normal' };
-    try {
-      await sendNotification(subscription, payload, options);
-      result.sent++;
-    } catch (error) {
-      if (error?.statusCode === 404 || error?.statusCode === 410) {
-        await request({ method: 'DELETE', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ endpoint: subscription.endpoint }) });
-        result.expired++;
-      } else {
-        // Provider objects can contain endpoints, keys and private response bodies.
-        // Only a bounded numeric status may enter the fixed diagnostic text.
-        const status = error?.statusCode;
-        log(Number.isInteger(status) && status >= 100 && status <= 599
-          ? `Web Push provider failure: HTTP ${status}.`
-          : 'Web Push provider failure: network or unknown error.');
-        log(providerClass(subscription, error?.body));
-        if (status === 400 || status === 403) log(`Web Push VAPID configured_public_sha256=${publicHash}.`);
-        result.failed++;
+        if (error?.statusCode === 404 || error?.statusCode === 410) {
+          await request({ method: 'DELETE', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ endpoint: subscription.endpoint }) });
+          result.expired++;
+        } else {
+          // Provider objects can contain endpoints, keys and private response bodies.
+          // Only a bounded numeric status may enter the fixed diagnostic text.
+          const status = error?.statusCode;
+          log(Number.isInteger(status) && status >= 100 && status <= 599
+            ? `Web Push provider failure: HTTP ${status}.`
+            : 'Web Push provider failure: network or unknown error.');
+          log(providerClass(subscription, error?.body));
+          if (status === 400 || status === 403) log(`Web Push VAPID configured_public_sha256=${publicHash}.`);
+          result.failed++;
+        }
       }
     }
+  } finally {
+    apnsClose?.();
   }
-  apnsClose?.();
   if (apnsSkipped) log(`APNs skipped: APNS_KEY, APNS_KEY_ID or APNS_TEAM_ID is not set (${apnsSkipped} subscription(s)).`);
   log(`Web Push: sent=${result.sent}, expired=${result.expired}, failed=${result.failed}.`);
   if (result.failed) throw new Error('Web Push delivery failed for one or more subscriptions.');
