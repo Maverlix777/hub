@@ -691,6 +691,10 @@ export function createWorker(webauthn = {
 
       let decodedPath;
       try { decodedPath = decodeURIComponent(url.pathname); } catch { return new Response('Bad request', { status: 400, headers: noStore }); }
+      // Bare hub host: send people to the app instead of a plain 400 (#1564). 302, not 308, so browsers do not cache it.
+      if (decodedPath === '/' && url.origin === canonicalOrigin && ['GET', 'HEAD'].includes(request.method)) {
+        return Response.redirect(`${canonicalOrigin}/hub/`, 302);
+      }
       if (decodedPath === '/hub') return Response.redirect(`${canonicalOrigin}/hub/`, 308);
       if (decodedPath === '/doktor') return Response.redirect(`${canonicalOrigin}/doktor/`, 308);
       if (decodedPath === '/хаб' || decodedPath === '/хаб/' || decodedPath.startsWith('/хаб/')) {
