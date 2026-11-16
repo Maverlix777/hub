@@ -123,6 +123,8 @@ const HIDDEN_PAGE = /^\/hub\/s\/([0-9a-f]{32})\/(index\.html|[A-Za-z0-9._-]+\.sh
 const CACHEABLE_STATIC = /^\/hub\/(?:icons\/.+|style\.css|login\.css|manifest\.webmanifest|apps\/[^/]+\.css)$/;
 // Doktor pages are public and session-free, so they may be cached by shared caches.
 const DOKTOR_CACHE_CONTROL = 'public, max-age=300';
+// Public LocationFusion App Store pages: exactly these two paths, no session, no D1.
+const LF_PUBLIC_PAGES = new Set(['/locationfusion/privacy/', '/locationfusion/support/']);
 
 // Single exit point: every response (JSON, redirects, ASSETS) gets the same security headers.
 // Redirect/ASSETS responses may have immutable headers, so the response is always rebuilt.
@@ -132,7 +134,7 @@ function finalize(response, request) {
   const pathname = new URL(request.url).pathname;
   if (response.status === 200 && ['GET', 'HEAD'].includes(request.method) && !headers.has('set-cookie')) {
     if (CACHEABLE_STATIC.test(pathname)) cacheControl = STATIC_CACHE_CONTROL;
-    else if (pathname.startsWith('/doktor/')) cacheControl = DOKTOR_CACHE_CONTROL;
+    else if (pathname.startsWith('/doktor/') || LF_PUBLIC_PAGES.has(pathname)) cacheControl = DOKTOR_CACHE_CONTROL;
   }
   headers.set('cache-control', cacheControl);
   headers.set('x-content-type-options', 'nosniff');
@@ -381,7 +383,7 @@ function safePublicPath(url) {
   }
   if (/%(?:2e|2f|5c)/i.test(url.pathname) || pathname.includes('%')
     || pathname.includes('\\') || pathname.split('/').some((part) => part === '.' || part === '..')) return null;
-  if (!pathname.startsWith('/hub/') && !pathname.startsWith('/doktor/')) return null;
+  if (!pathname.startsWith('/hub/') && !pathname.startsWith('/doktor/') && !LF_PUBLIC_PAGES.has(pathname)) return null;
   return pathname;
 }
 
@@ -710,7 +712,7 @@ export function createWorker(webauthn = {
       let pathname;
       try { pathname = safePublicPath(url); } catch { pathname = null; }
       if (!pathname) return new Response('Bad request', { status: 400, headers: noStore });
-      if (pathname.startsWith('/doktor/')) {
+      if (pathname.startsWith('/doktor/') || LF_PUBLIC_PAGES.has(pathname)) {
         // Public static pages: no session is read or set.
         if (!['GET', 'HEAD'].includes(request.method)) return new Response('Method not allowed', { status: 405, headers: { ...noStore, allow: 'GET, HEAD' } });
         const assetPath = pathname.endsWith('/') ? `${pathname}index.html` : pathname;

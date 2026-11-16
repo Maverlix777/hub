@@ -19,7 +19,8 @@ with tempfile.TemporaryDirectory(prefix="hub-site-check-") as temp:
                 "apps/downloads.js", "apps/downloads.css", "apps/board.html", "apps/board.js", "apps/board.css", "apps/messenger.html", "apps/messenger.js", "apps/messenger.css", "icons/icon-180.png", "icons/icon-192.png",
                 "icons/icon-512.png",
                 "doktor/index.html", "doktor/privacy.html", "doktor/support.html", "doktor/terms.html", "doktor/style.css",
-                "doktor/blog/first-post.html", "doktor/blog/index.html", "doktor/downloads/index.html"}
+                "doktor/blog/first-post.html", "doktor/blog/index.html", "doktor/downloads/index.html",
+                "locationfusion/privacy/index.html", "locationfusion/support/index.html"}
     present = {path.relative_to(site).as_posix() for path in site.rglob("*") if path.is_file()}
     missing = sorted(expected - present)
     extra = sorted(present - expected)
