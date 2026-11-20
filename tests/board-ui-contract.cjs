@@ -84,7 +84,7 @@ async function closeTestResources(browser, server) {
       let armed = false; let held; let capture;
       const captured = new Promise(resolve => { capture = resolve; });
       const privateCard = {...card,title:'PRIVATE_CARD',description:'PRIVATE_DETAIL'};
-      const boardData = {cards:[privateCard],sources:[],telemetry:{status:'available',as_of:new Date().toISOString(),events:[{task_id:'PRIVATE_EVENT',state:'running'}]}};
+      const boardData = {cards:[privateCard],sources:[],telemetry:{status:'available',as_of:new Date().toISOString(),events:[{task_id:'PRIVATE_EVENT',state:'running'}]},operations:{status:'ok',as_of:'2026-11-10T20:00:00.000Z',open_issues:987654,workers:[{label:'worker:PRIVATE_QUEUE',count:987654}],human_blockers:[{number:123,title:'PRIVATE_BLOCKER',url:'https://github.com/Maverlix777/agent-handoffs/issues/123'}],praxis_url:'https://example.org/PRIVATE_PRAXIS'}};
       const outboxData = {items:[{id:'private-receipt',kind:'message',text:'PRIVATE_MESSAGE',status:'pending'}]};
       await race.route('**/hub/api/**',async route => {
         const req=route.request(); const pathname=new URL(req.url()).pathname;
@@ -115,6 +115,8 @@ async function closeTestResources(browser, server) {
       assert.equal(await race.locator('#message-form button').isDisabled(),true);
       assert.equal(await race.locator('#refresh').isDisabled(),true);
       assert.equal(await race.locator('#detail-content').textContent(),'');
+      assert.equal(await race.locator('#operations a').count(),0,'Auth loss must remove operation and Praxis anchors');
+      assert.doesNotMatch(await race.locator('body').textContent(),/987654/,'Auth loss must clear operation totals');
       await race.close();
     }
     console.log('PASS: auth-loss terminal guard rejects delayed board/outbox/POST success; telemetry/details/drafts cleared and controls stay disabled.');
@@ -210,6 +212,93 @@ async function closeTestResources(browser, server) {
     assert.equal(await resumePage.locator('.retry-delivery').count(),0);
     await resumePage.close();
     console.log('PASS: pending disabled-channel item survives reload and resumes after enable with identical key/payload/id, no fresh message; synthetic API only.');
+
+    // #1508 operations come through the real authenticated board load. All
+    // endpoints are synthetic; this proves rendering, not a live GitHub census.
+    const opsPage=await browser.newPage({viewport:{width:1440,height:1000}});
+    const opsErrors=[]; const externalRequests=[];
+    opsPage.on('pageerror',error=>opsErrors.push(error.message));
+    await opsPage.route('**/*',route=>{
+      if(new URL(route.request().url()).hostname==='127.0.0.1') return route.continue();
+      externalRequests.push(route.request().url()); return route.abort();
+    });
+    const completeOperations={status:'ok',as_of:'2026-11-10T20:00:00.000Z',open_issues:3,
+      workers:[{label:'worker:codex',count:2},{label:'worker:oleg',count:2}],
+      human_blockers:[{number:1508,title:'Synthetic <img src=x onerror=alert(1)> owner question',url:'https://github.com/Maverlix777/agent-handoffs/issues/1508'}],
+      praxis_url:'https://example.org/praxis?view=queue#today'};
+    let operations=structuredClone(completeOperations); let boardStatus=200;
+    await opsPage.route('**/hub/api/**',route=>{
+      const pathname=new URL(route.request().url()).pathname;
+      if(pathname.endsWith('/session')) return route.fulfill({json:syntheticSession});
+      if(pathname.endsWith('/board')) return route.fulfill({status:boardStatus,json:boardStatus===200
+        ? {cards:[card],sources:[{path:'fixtures/BOARD.md',status:'available',cardCount:1}],operations}
+        : {error:'synthetic_board_unavailable'}});
+      return route.fulfill({json:{items:[],delivery:{status:'not_configured'}}});
+    });
+    await opsPage.goto(`http://127.0.0.1:${server.address().port}/hub/apps/board.html`);
+    await opsPage.waitForFunction(()=>document.getElementById('columns').getAttribute('aria-busy')==='false');
+    assert.equal(await opsPage.locator('#operations').count(),1,'#1508: authenticated board.operations must render the operations panel');
+    assert.equal(await opsPage.locator('#operations-open').textContent(),'3');
+    assert.deepEqual(await opsPage.locator('#operations-workers li').allTextContents(),['worker:codex: 2','worker:oleg: 2']);
+    assert.match(await opsPage.locator('#operations-status').textContent(),/10\.11\.2026/);
+    assert.equal(await opsPage.locator('#operations-blockers img').count(),0);
+    assert.match(await opsPage.locator('#operations-blockers').textContent(),/Synthetic <img src=x onerror=alert\(1\)> owner question/);
+    const blocker=opsPage.locator('#operations-blockers a');
+    assert.equal(await blocker.getAttribute('href'),completeOperations.human_blockers[0].url);
+    assert.equal(await blocker.getAttribute('target'),'_blank');
+    assert.match(await blocker.getAttribute('rel'),/noopener/); assert.match(await blocker.getAttribute('rel'),/noreferrer/);
+    assert.equal(await opsPage.locator('#operations-praxis a').getAttribute('href'),completeOperations.praxis_url);
+    assert.match(await opsPage.locator('#operations-praxis a').getAttribute('rel'),/noopener/);
+    assert.match(await opsPage.locator('#operations-praxis a').getAttribute('rel'),/noreferrer/);
+    await opsPage.setViewportSize({width:390,height:844});
+    assert.equal(await opsPage.evaluate(()=>document.documentElement.scrollWidth<=window.innerWidth),true);
+    async function refreshOperations() {
+      const response=opsPage.waitForResponse(r=>new URL(r.url()).pathname.endsWith('/board'));
+      await opsPage.locator('#refresh').click(); await response;
+      await opsPage.waitForFunction(()=>document.getElementById('columns').getAttribute('aria-busy')==='false');
+    }
+    const unavailable={status:'unavailable',as_of:null,open_issues:null,workers:[],human_blockers:[],praxis_url:completeOperations.praxis_url};
+    operations=structuredClone(unavailable); await refreshOperations();
+    assert.match(await opsPage.locator('#operations-status').textContent(),/недоступ/i);
+    assert.equal(await opsPage.locator('#operations-open').textContent(),'—');
+    assert.equal(await opsPage.locator('#operations-workers li').count(),0);
+    assert.equal(await opsPage.locator('#operations-blockers a').count(),0);
+    assert.doesNotMatch(await opsPage.locator('#operations-blockers').textContent(),/нет|отсутствуют/i,'Unavailable source is not an empty blocker list');
+    assert.equal(await opsPage.locator('#operations-praxis a').getAttribute('href'),completeOperations.praxis_url,'Praxis navigation is independent of census availability');
+    assert.equal(await opsPage.locator('#question-list button').count(),1,'Operations failure must preserve Markdown cards');
+    operations={...structuredClone(completeOperations),open_issues:0,workers:[],human_blockers:[],praxis_url:null}; await refreshOperations();
+    assert.equal(await opsPage.locator('#operations-open').textContent(),'0');
+    assert.doesNotMatch(await opsPage.locator('#operations-status').textContent(),/недоступ/i);
+    assert.match(await opsPage.locator('#operations-blockers').textContent(),/нет|отсутствуют/i);
+    assert.equal(await opsPage.locator('#operations-praxis a').count(),0);
+    for(const invalid of [undefined,{...completeOperations,open_issues:-1},{...completeOperations,workers:[{label:'worker:codex',count:'2'}]},{...completeOperations,human_blockers:[{number:0,title:'bad',url:'https://example.org/'}]}]) {
+      operations=invalid; await refreshOperations();
+      assert.match(await opsPage.locator('#operations-status').textContent(),/недоступ/i);
+      assert.equal(await opsPage.locator('#operations-open').textContent(),'—');
+      assert.equal(await opsPage.locator('#operations-workers li').count(),0);
+      assert.equal(await opsPage.locator('#operations-blockers a').count(),0);
+    }
+    for(const invalidURL of ['',null,'javascript:alert(1)','http://example.org/praxis','https://synthetic:synthetic@example.org/praxis']) {
+      operations=structuredClone(completeOperations); await refreshOperations();
+      assert.equal(await opsPage.locator('#operations-praxis a').count(),1);
+      operations={...structuredClone(completeOperations),praxis_url:invalidURL}; await refreshOperations();
+      assert.equal(await opsPage.locator('#operations-praxis a').count(),0,'Invalid/blank URL must remove a previously valid link');
+    }
+    operations=structuredClone(completeOperations); await refreshOperations();
+    boardStatus=503; await refreshOperations();
+    assert.match(await opsPage.locator('#operations-status').textContent(),/недоступ|стар|устар/i,'A failed refresh cannot show a fresh operations snapshot');
+    boardStatus=200; await refreshOperations();
+    await opsPage.evaluate(()=>window.dispatchEvent(new CustomEvent('hub:session-ended')));
+    assert.equal(await opsPage.locator('#operations a').count(),0);
+    assert.equal(await opsPage.locator('#operations-workers li').count(),0);
+    assert.doesNotMatch(await opsPage.locator('#operations').textContent(),/Synthetic|worker:codex|worker:oleg/);
+    assert.notEqual(await opsPage.locator('#operations-open').textContent(),'3');
+    assert.deepEqual(externalRequests,[],'Operations/Praxis must not fetch any external endpoint');
+    assert.deepEqual(opsErrors,[]);
+    await opsPage.close();
+    const csp=fs.readFileSync(path.join(root,'apps/board.html'),'utf8').match(/<meta http-equiv="Content-Security-Policy" content="([^"]+)"/)[1];
+    assert.equal(csp,"default-src 'self'; connect-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; base-uri 'self'; form-action 'self'");
+    console.log('PASS: operations counts/empty/unavailable, literal blocker links, independent safe Praxis, refresh/schema/auth clearing, no external requests and unchanged CSP; synthetic API only.');
   } catch (error) { testError = error; } finally {
     try { await closeTestResources(browser, server); } catch (error) { testError = testError ? new AggregateError([testError, error], 'Assertions and cleanup failed') : error; }
   }

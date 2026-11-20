@@ -37,3 +37,11 @@ npm run check                    # CSP, реестр загрузок, Pages art
 - Прод-шлюз (`HUB_GATEWAY_ORIGIN`, `HUB_GATEWAY_SECRET`) локально не используется.
 
 Деплой и прод-настройки: [CLOUDFLARE.md](CLOUDFLARE.md).
+
+## Owner board operations
+
+The owner-only `GET /hub/api/board` also returns an `operations` snapshot from open GitHub Issues, separate from Markdown column counts. The existing server-only binding `BOARD_GITHUB_TOKEN` and optional `BOARD_REPO` (default `Maverlix777/agent-handoffs`) supply this read. The token never goes to the browser. No census is added to outbox POST validation.
+
+Only a complete bounded read returns `status: "ok"`, `as_of`, an open Issue total, exact `worker:*` counts and exact `blocked:human` entries. PRs and closed Issues are excluded; multiple worker labels can make worker totals exceed unique Issues. The completion time is not an atomic GitHub snapshot. Failed, incomplete or unconfigured reads return `unavailable` with null totals and empty lists while preserving available Markdown cards. Reads use one 10-second deadline, at most 20 sequential 100-row pages, 1MiB per page and 8MiB total; they do not retry or follow redirects.
+
+The optional server binding `BOARD_PRAXIS_URL` provides a separate navigation link. It must be an absolute HTTPS URL without userinfo or controls; both the raw binding string and the normalized serialized HTTPS URL must be at most 2048 UTF-16 code units. Invalid, blank or oversized values hide it. This code never fetches or embeds Praxis. A valid link can remain configured when Issue counts are unavailable; this is not evidence Praxis is reachable. No deployed binding or live queue is verified by these source tests. The source PR remains open for review; no public main merge, Pages/Worker deploy or production configuration change is part of this feature.

@@ -32,6 +32,50 @@
     const parsed = new Date(value);
     return value && Number.isFinite(parsed.getTime()) ? parsed.toLocaleString('ru-RU') : 'Нет данных';
   }
+  function operationLink(value, label) {
+    if (typeof value !== 'string' || !value.trim() || value.length > 2048 || /[\u0000-\u001f\u007f]/.test(value)) return null;
+    return safeLink(value, label);
+  }
+  function validOperations(data) {
+    if (!data || data.status !== 'ok' || !Number.isSafeInteger(data.open_issues) || data.open_issues < 0 ||
+        typeof data.as_of !== 'string' || !data.as_of.endsWith('Z') || !Number.isFinite(Date.parse(data.as_of)) ||
+        !Array.isArray(data.workers) || !Array.isArray(data.human_blockers)) return false;
+    const labels = new Set(); const numbers = new Set();
+    for (const worker of data.workers) {
+      if (!worker || typeof worker.label !== 'string' || !worker.label.startsWith('worker:') || !worker.label.slice(7).trim() ||
+          labels.has(worker.label) || !Number.isSafeInteger(worker.count) || worker.count <= 0 || worker.count > data.open_issues) return false;
+      labels.add(worker.label);
+    }
+    if (data.human_blockers.length > data.open_issues) return false;
+    for (const blocker of data.human_blockers) {
+      if (!blocker || !Number.isSafeInteger(blocker.number) || blocker.number <= 0 || numbers.has(blocker.number) ||
+          typeof blocker.title !== 'string' || !operationLink(blocker.url, blocker.title)) return false;
+      numbers.add(blocker.number);
+    }
+    return true;
+  }
+  function renderOperations(data, message) {
+    // Always clear the previous snapshot, including links, before handling a
+    // partial failure or auth loss. Census availability and Praxis are separate.
+    $('operations-open').textContent = '—';
+    $('operations-workers').replaceChildren(); $('operations-workers-empty').hidden = true;
+    $('operations-blockers').replaceChildren(el('li','empty','Список вопросов недоступен.'));
+    const praxis = $('operations-praxis'); praxis.replaceChildren(); praxis.hidden = true;
+    const status = $('operations-status'); status.className = 'status';
+    status.textContent = message || 'Очереди задач недоступны. Число задач не подтверждено.';
+    if (authInvalid) return;
+    const link = operationLink(data?.praxis_url, 'Открыть Praxis ↗');
+    if (link) { praxis.append(link); praxis.hidden = false; }
+    if (!validOperations(data)) return;
+    status.textContent = `Открытые задачи GitHub. Чтение завершено: ${date(data.as_of)}. Данные могли измениться во время чтения.`;
+    $('operations-open').textContent = String(data.open_issues);
+    $('operations-workers').replaceChildren(...data.workers.map((worker) => el('li','',`${worker.label}: ${worker.count}`)));
+    $('operations-workers-empty').hidden = data.workers.length !== 0;
+    $('operations-blockers').replaceChildren(...data.human_blockers.map((blocker) => {
+      const row = el('li'); row.append(operationLink(blocker.url, `#${blocker.number} · ${Array.from(blocker.title).slice(0,240).join('')}`)); return row;
+    }));
+    if (!data.human_blockers.length) $('operations-blockers').append(el('li','empty','Вопросов, требующих участия человека, нет.'));
+  }
   function cardButton(card) {
     const button = el('button', 'card'); button.type = 'button'; button.dataset.cardKey = cardKey(card);
     button.append(el('span', 'id', `${card.id} · ${card.source || 'Источник не указан'}`), el('span', 'card-title', card.title || 'Без названия'));
@@ -183,6 +227,7 @@
     closeCard(false); render(); renderOutbox();
     $('detail-content').replaceChildren(); $('detail-id').textContent = '';
     $('telemetry').replaceChildren(el('h2','','Снежанна'),el('p','hint','Доступ завершён. Данные скрыты.'));
+    renderOperations(null, 'Доступ завершён. Данные скрыты.');
     $('q').value = ''; $('q').disabled = true;
     $('message-text').value = ''; $('message-text').disabled = true;
     $('message-form').querySelector('button').disabled = true;
@@ -439,9 +484,10 @@
       const board = await api('board'); requireActiveSession(); cards = Array.isArray(board.cards) ? board.cards : []; applyAnswered(); sources = Array.isArray(board.sources) ? board.sources : [];
       lastRead = new Date().toISOString(); boardFailure = '';
       $('status').className = 'status'; $('status').textContent = `Карточек: ${cards.length}. Прочитано: ${date(lastRead)}${board.unmappedCount ? `. Не распознано строк: ${board.unmappedCount}` : ''}`;
-      render(); renderTelemetry(board.telemetry); restoreHistory();
+      render(); renderTelemetry(board.telemetry); renderOperations(board.operations); restoreHistory();
     } catch (error) {
       if (authInvalid) return;
+      renderOperations(null, 'Очереди задач недоступны: не удалось обновить доску.');
       boardFailure = `Не удалось прочитать доску: ${error?.code || error?.message || 'сеть недоступна'}. Это не значит, что задач нет.`; renderErrors(boardFailure);
       $('status').className = 'status error'; $('status').textContent = `Не удалось обновить доску.${lastRead ? ` Показан старый снимок от ${date(lastRead)}.` : ' Данные не прочитаны.'}`;
       if (!lastRead) { $('question-list').replaceChildren(el('li','error','Вопросы не загружены')); $('idea-list').replaceChildren(el('li','error','Ошибка чтения источников; это не означает отсутствие идей.')); $('columns').replaceChildren(el('p','error','Доска недоступна. Нажми «Обновить», чтобы повторить.')); }

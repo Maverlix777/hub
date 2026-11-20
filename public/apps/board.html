@@ -45,6 +45,16 @@
     <div class="section-heading"><h2 id="presence-title">Кто чем занят</h2><span id="presence-count" class="count">…</span></div>
     <div id="presence-list" class="presence-list"><p class="empty">Загрузка…</p></div>
   </section>
+  <section id="operations" class="panel" aria-labelledby="operations-title">
+    <div class="section-heading"><h2 id="operations-title">Очереди задач</h2></div>
+    <p id="operations-status" class="status" role="status" aria-live="polite">Загружаем открытые задачи…</p>
+    <dl class="metric-list"><dt>Открытых задач в GitHub</dt><dd id="operations-open">—</dd></dl>
+    <div class="support-grid">
+      <section class="detail-section" aria-labelledby="operations-workers-title"><h3 id="operations-workers-title">По исполнителям</h3><p class="hint">У одной задачи может быть несколько исполнителей, поэтому сумма очередей может быть больше общего числа задач.</p><ul id="operations-workers" class="activity"></ul><p id="operations-workers-empty" class="hint" hidden>В открытых задачах нет назначенных исполнителей.</p></section>
+      <section class="detail-section" aria-labelledby="operations-blockers-title"><h3 id="operations-blockers-title">Требуется участие человека</h3><ul id="operations-blockers" class="activity"><li class="empty">Список вопросов ещё не прочитан.</li></ul></section>
+    </div>
+    <div id="operations-praxis" hidden></div>
+  </section>
   <section class="work-section" aria-labelledby="work-title">
     <div class="section-heading"><h2 id="work-title">В работе команды</h2><label class="search-label" for="q">Поиск <input id="q" type="search" placeholder="Номер, задача, исполнитель"></label></div>
     <div id="board-errors" class="board-errors" role="alert" hidden></div>
