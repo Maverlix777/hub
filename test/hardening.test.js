@@ -96,6 +96,21 @@ test('exception in D1 yields generic 500 internal_error with no-store and no err
   assertSecurityHeaders(response);
 });
 
+test('bare host root redirects to /hub/ with 302 (#1564)', async () => {
+  for (const method of ['GET', 'HEAD']) {
+    const root = await worker.fetch(req('/', { method }), env);
+    assert.equal(root.status, 302);
+    assert.equal(root.headers.get('location'), `${origin}/hub/`);
+    assertSecurityHeaders(root);
+  }
+  const post = await worker.fetch(req('/', { method: 'POST' }), env);
+  assert.equal(post.status, 400);
+  const junk = await worker.fetch(req('/nope'), env);
+  assert.equal(junk.status, 400);
+  const login = await worker.fetch(req('/hub/login/'), env);
+  assert.equal(login.status, 200);
+});
+
 test('redirects carry the common security headers', async () => {
   const redirect = await worker.fetch(req('/hub'), env);
   assert.equal(redirect.status, 308);
