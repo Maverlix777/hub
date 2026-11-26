@@ -45,6 +45,18 @@
   rejected.append(rList);
   root.append(rejected);
 
+  const facts = el('section', 'money-facts');
+  facts.append(el('h2', '', 'Факты, не ролики'));
+  const fList = el('ul', 'grid');
+  for (const f of snap.facts || []) {
+    const li = el('li', '');
+    li.append(el('strong', '', f.hook || f.id));
+    if (f.body) li.append(el('div', 'note', f.body));
+    fList.append(li);
+  }
+  facts.append(fList);
+  root.append(facts);
+
   const links = el('section', 'money-links');
   links.append(el('h2', '', 'Материалы'));
   const kit = el('a', 'btn', 'Media kit');

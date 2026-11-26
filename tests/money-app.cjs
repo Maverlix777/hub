@@ -21,6 +21,7 @@ const snap = JSON.parse(snapMatch[1]);
 assert(snap.approved_ids.includes('cmp_wow_forever_uk'));
 assert(snap.approved_ids.includes('cmp_metaphor_refantazio'));
 assert(!snap.approved_ids.includes('cmp_tokyo_girl_skip'));
+assert((snap.facts || []).some((f) => f.id === 'fact_minecraft_disc_11'));
 
 const moneyJs = fs.readFileSync(path.join(root, 'public/apps/money.js'), 'utf8');
 assert(!moneyJs.includes('innerHTML'), 'money.js must not use innerHTML');
