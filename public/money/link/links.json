@@ -1,0 +1,40 @@
+{
+  "brand_name": "YOUR GAMING CHANNEL",
+  "tagline": "Daily 60-second gaming mysteries, impossible glitches & deep-dive stories.",
+  "contact_email": "sponsors@example.com",
+  "media_kit_url": "../media-kit/index.html",
+  "offers": [
+    {
+      "id": "offer_featured_game",
+      "badge": "FEATURED GAME",
+      "title": "Play Featured Free-to-Play RPG (Starter Pack)",
+      "subtitle": "Install on PC or Mobile via our link for bonus in-game loot.",
+      "url": "https://example.com/your-game-cpa-link",
+      "highlight": true
+    },
+    {
+      "id": "offer_gaming_vpn",
+      "badge": "GAMING PERK",
+      "title": "Low-Ping Gaming VPN — 70% Off + Extra Months",
+      "subtitle": "Protect your lobby connection and unlock regional servers.",
+      "url": "https://example.com/your-vpn-affiliate-link",
+      "highlight": false
+    },
+    {
+      "id": "offer_browser",
+      "badge": "FREE TOOL",
+      "title": "Gaming Browser with Built-in RAM & CPU Limiter",
+      "subtitle": "Free download for Windows & macOS — supports the channel.",
+      "url": "https://example.com/your-browser-cpa-link",
+      "highlight": false
+    },
+    {
+      "id": "offer_youtube_longform",
+      "badge": "NEW EPISODE",
+      "title": "Watch Full 10-Minute Gaming Breakdowns on YouTube",
+      "subtitle": "Full deep-dives, chapters, and tests that could not fit in 60 seconds.",
+      "url": "https://youtube.com/@YourFlagshipGaming",
+      "highlight": false
+    }
+  ]
+}
