@@ -2,7 +2,7 @@
   "brand_name": "YOUR GAMING CHANNEL",
   "tagline": "Daily 60-second gaming mysteries, impossible glitches & deep-dive stories.",
   "contact_email": "sponsors@example.com",
-  "media_kit_url": "../media-kit/index.html",
+  "media_kit_url": "../kit/index.html",
   "offers": [
     {
       "id": "offer_featured_game",

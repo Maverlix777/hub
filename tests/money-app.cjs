@@ -27,5 +27,11 @@ assert(!moneyJs.includes('innerHTML'), 'money.js must not use innerHTML');
 
 assert(fs.existsSync(path.join(root, 'public/money/kit/index.html')));
 assert(fs.existsSync(path.join(root, 'public/money/link/index.html')));
+const linkHtml = fs.readFileSync(path.join(root, 'public/money/link/index.html'), 'utf8');
+const linkJson = fs.readFileSync(path.join(root, 'public/money/link/links.json'), 'utf8');
+assert(linkHtml.includes('../kit/index.html'));
+assert(!linkHtml.includes('../media-kit/'));
+assert(linkJson.includes('../kit/index.html'));
+assert(!linkJson.includes('../media-kit/'));
 
 console.log('money-app: PASS');
