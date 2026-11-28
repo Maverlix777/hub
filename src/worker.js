@@ -37,6 +37,7 @@ const STATIC_CACHE_CONTROL = 'private, max-age=3600';
 const APP_ACCESS = Object.freeze({
   chat: Object.freeze(['free', 'paid']),
   downloads: Object.freeze(['free', 'paid']),
+  money: Object.freeze(['free', 'paid']),
   'location-fusion': Object.freeze(['paid']),
   // Job Forge: only a plan so far (agent-handoffs, 20.10.2026); reserved paid-only before its files land in public/apps/.
   'job-forge': Object.freeze(['paid']),

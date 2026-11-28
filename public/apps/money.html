@@ -42,13 +42,15 @@
     <a id="nav-chat" href="/hub/chat">Чат с агентами</a>
     <a id="nav-apps" href="/hub/index.html">Приложения</a>
     <a id="nav-downloads" href="/hub/apps/downloads.html" data-nav-app="downloads" hidden>Загрузки</a>
-    <a id="nav-money" aria-current="page" href="/hub/apps/money.html">Деньги</a>
+    <a id="nav-money" aria-current="page" href="/hub/apps/money.html" data-nav-app="money" hidden>Деньги</a>
   </nav>
   <div class="account" id="account" hidden><span id="account-name"></span><button id="logout" type="button" hidden>Выйти</button></div>
 </header>
 <main class="catalog-page" id="money-root">
   <section class="page-intro"><p class="eyebrow">КОНТЕНТ</p></section>
+  <p id="session-status" class="session-status" role="status" aria-live="polite" hidden></p>
 </main>
 <script src="money.js"></script>
+<script src="/hub/hub.js"></script>
 </body>
 </html>
