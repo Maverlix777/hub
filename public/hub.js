@@ -52,7 +52,7 @@
   // Own apps: hidden unless allowed. External tiles: hidden only when the server lists them as locked.
   const tileItems = new Map();
   function hideDeniedTiles(allowed, locked) {
-    for (const id of ['board', 'chat', 'downloads']) {
+    for (const id of ['board', 'chat', 'downloads', 'money']) {
       const link = document.getElementById(`nav-${id}`);
       if (link) link.hidden = !allowed.includes(id);
     }

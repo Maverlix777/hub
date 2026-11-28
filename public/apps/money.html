@@ -1,0 +1,56 @@
+<!doctype html>
+<html lang="ru">
+<head>
+<meta charset="utf-8">
+<meta http-equiv="Content-Security-Policy" content="default-src 'self'; connect-src 'self' https://api.anthropic.com; style-src 'self' 'unsafe-inline'; base-uri 'self'; form-action 'self'">
+<script type="application/json" id="money-snapshot">
+{
+  "videos": [
+    {"id": "d01_flagship", "title": "GTA V Chiliad Mural Secret Room", "duration_sec": 64, "file": "local:output/shorts/d01_flagship.mp4"},
+    {"id": "d02_flagship", "title": "Minecraft Disc 11 Spectrogram Secret", "duration_sec": 64, "file": "local:output/shorts/d02_flagship.mp4"},
+    {"id": "d03_flagship", "title": "Elden Ring Hidden Wall 50 Hits Mystery", "duration_sec": 64, "file": "local:output/shorts/d03_flagship.mp4"}
+  ],
+  "approved_ids": ["cmp_wow_forever_uk", "cmp_metaphor_refantazio"],
+  "rejected_ids": ["cmp_arthur_tv_gta6", "cmp_tokyo_girl_skip"],
+  "facts": [
+    {"id": "fact_minecraft_disc_11", "hook": "A music disc in Minecraft hides a picture inside the sound.", "body": "Disc 11 is an official Minecraft music disc. A spectrogram of its audio shows a face and the numbers 12418."},
+    {"id": "fact_missingno", "hook": "A glitch Pokémon can scramble your Hall of Fame data.", "body": "MissingNo. appears in Pokémon Red and Blue when an encounter glitch reads empty memory. Catching it can inflate the sixth bag item."},
+    {"id": "fact_corrupted_blood", "hook": "A boss debuff escaped one raid and looked like a plague.", "body": "In 2005 the Corrupted Blood debuff from Zul'Gurub spread into cities through pets and players. Blizzard hotfixed it after the outbreak."},
+    {"id": "fact_et_burial", "hook": "Atari really buried unsold cartridges in New Mexico.", "body": "In 1983 Atari buried unsold games, including E.T., in Alamogordo. A 2014 dig recovered cartridges."},
+    {"id": "fact_pacman_level_256", "hook": "Pac-Man cannot draw the level after 255.", "body": "The stage counter is one byte. Level 256 overflows the fruit counter and turns half the maze into garbage."},
+    {"id": "fact_gta_hot_coffee", "hook": "A locked sex minigame was still in the San Andreas PC files.", "body": "A 2005 mod re-enabled it. The ESRB moved the game to Adults Only until Rockstar shipped a patch."}
+  ],
+  "note": "Факты публикуем текстом. Ролики остаются отдельным слоем и пока лежат только на computah."
+}
+</script>
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<meta name="referrer" content="no-referrer">
+<meta name="color-scheme" content="light">
+<meta name="theme-color" content="#f3f5f9">
+<link rel="manifest" href="../manifest.webmanifest">
+<link rel="icon" type="image/png" href="../icons/icon-192.png">
+<link rel="apple-touch-icon" href="../icons/icon-180.png">
+<meta name="apple-mobile-web-app-title" content="Хаб">
+<title>Деньги — Хаб</title>
+<link rel="stylesheet" href="../style.css">
+</head>
+<body>
+<header class="bar hub-header">
+  <a class="hub-brand" id="hub" href="/hub/" aria-label="Хаб — главная">Хаб<span class="brand-dot" aria-hidden="true"></span></a>
+  <nav class="hub-nav" aria-label="Основная навигация">
+    <a id="nav-board" href="/hub/" data-nav-app="board" hidden>Доска</a>
+    <a id="nav-chat" href="/hub/chat">Чат с агентами</a>
+    <a id="nav-apps" href="/hub/index.html">Приложения</a>
+    <a id="nav-downloads" href="/hub/apps/downloads.html" data-nav-app="downloads" hidden>Загрузки</a>
+    <a id="nav-money" aria-current="page" href="/hub/apps/money.html" data-nav-app="money" hidden>Деньги</a>
+  </nav>
+  <div class="account" id="account" hidden><span id="account-name"></span><button id="logout" type="button" hidden>Выйти</button></div>
+</header>
+<main class="catalog-page" id="money-root">
+  <section class="page-intro"><p class="eyebrow">КОНТЕНТ</p></section>
+  <p id="session-status" class="session-status" role="status" aria-live="polite" hidden></p>
+</main>
+<script src="money.js"></script>
+<script src="/hub/hub.js"></script>
+</body>
+</html>

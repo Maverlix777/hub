@@ -1,0 +1,172 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Creator Media Kit — @YourFlagshipGaming</title>
+  <style>
+    :root {
+      --bg: #0a0f1a;
+      --panel: #121a2b;
+      --border: #253450;
+      --accent: #38bdf8;
+      --accent2: #a855f7;
+      --text: #f1f5f9;
+      --muted: #94a3b8;
+    }
+    * { box-sizing: border-box; margin: 0; padding: 0; }
+    body {
+      background: var(--bg);
+      color: var(--text);
+      font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+      padding: 32px 20px;
+      line-height: 1.5;
+    }
+    .sheet {
+      max-width: 880px;
+      margin: 0 auto;
+      background: var(--panel);
+      border: 1px solid var(--border);
+      border-radius: 18px;
+      padding: 36px;
+    }
+    .top {
+      display: flex;
+      justify-content: space-between;
+      align-items: flex-start;
+      gap: 20px;
+      border-bottom: 1px solid var(--border);
+      padding-bottom: 24px;
+      margin-bottom: 24px;
+      flex-wrap: wrap;
+    }
+    .eyebrow { color: var(--accent); font-size: 12px; font-weight: 700; letter-spacing: 1px; text-transform: uppercase; }
+    h1 { font-size: 30px; margin: 6px 0; }
+    .sub { color: var(--muted); max-width: 540px; font-size: 14px; }
+    .cta {
+      background: linear-gradient(135deg, var(--accent), var(--accent2));
+      color: #08101c;
+      text-decoration: none;
+      font-weight: 800;
+      padding: 12px 18px;
+      border-radius: 10px;
+      font-size: 14px;
+    }
+    .grid {
+      display: grid;
+      grid-template-columns: repeat(auto-fit, minmax(180px, 1fr));
+      gap: 14px;
+      margin-bottom: 28px;
+    }
+    .stat {
+      background: #0d1423;
+      border: 1px solid var(--border);
+      border-radius: 12px;
+      padding: 16px;
+    }
+    .stat-label { color: var(--muted); font-size: 12px; text-transform: uppercase; letter-spacing: 0.5px; }
+    .stat-val { font-size: 26px; font-weight: 800; color: var(--accent); margin-top: 4px; }
+    h2 { font-size: 17px; margin-bottom: 12px; color: var(--text); }
+    .packages {
+      display: grid;
+      grid-template-columns: repeat(auto-fit, minmax(240px, 1fr));
+      gap: 14px;
+      margin-bottom: 28px;
+    }
+    .pkg {
+      background: #0d1423;
+      border: 1px solid var(--border);
+      border-radius: 12px;
+      padding: 18px;
+    }
+    .pkg-price { font-size: 20px; font-weight: 800; color: #c084fc; margin: 8px 0; }
+    .pkg ul { padding-left: 18px; color: var(--muted); font-size: 13px; }
+    .pkg li { margin-bottom: 4px; }
+    .note {
+      font-size: 13px;
+      color: var(--muted);
+      border-top: 1px solid var(--border);
+      padding-top: 18px;
+      display: flex;
+      justify-content: space-between;
+      flex-wrap: wrap;
+      gap: 10px;
+    }
+    @media print {
+      body { background: #ffffff; color: #111827; padding: 0; }
+      .sheet { background: #ffffff; border: none; }
+      .stat, .pkg { background: #f8fafc; border-color: #cbd5e1; }
+      .stat-val, .pkg-price { color: #0369a1; }
+    }
+  </style>
+</head>
+<body>
+  <article class="sheet">
+    <header class="top">
+      <div>
+        <div class="eyebrow">Creator Media Kit — 2026</div>
+        <h1>@YourFlagshipGaming</h1>
+        <p class="sub">EN Entertainment &amp; Gaming Content Engine. High-retention English gaming mysteries, speedrun breakdowns, and mythbusting distributed natively across YouTube Shorts, TikTok (60s+), Instagram Reels, and YouTube Long-Form.</p>
+      </div>
+      <a class="cta" href="mailto:sponsors@example.com?subject=Sponsorship%20Booking">Book a Test Slot</a>
+    </header>
+
+    <section class="grid" aria-label="Key audience metrics">
+      <div class="stat">
+        <div class="stat-label">30-Day Cross-Platform Views</div>
+        <div class="stat-val">1,200,000</div>
+      </div>
+      <div class="stat">
+        <div class="stat-label">Avg Views / Release</div>
+        <div class="stat-val">35,000</div>
+      </div>
+      <div class="stat">
+        <div class="stat-label">Tier-1 Audience (US/UK/CA/AU)</div>
+        <div class="stat-val">68.0%</div>
+      </div>
+      <div class="stat">
+        <div class="stat-label">Avg Viewed vs Swiped</div>
+        <div class="stat-val">76.5%</div>
+      </div>
+    </section>
+
+    <section>
+      <h2>Sponsorship Packages &amp; Test Rates</h2>
+      <div class="packages">
+        <div class="pkg">
+          <h3>3-Platform Short Integration</h3>
+          <div class="pkg-price">$330 - $520</div>
+          <ul>
+            <li>Native 10-15s shoutout inside 61-75s vertical release</li>
+            <li>Published across YouTube Shorts, TikTok &amp; IG Reels</li>
+            <li>UTM-tracked pinned comment + Link-in-Bio placement</li>
+          </ul>
+        </div>
+        <div class="pkg">
+          <h3>YouTube Long-Form Mid-Roll (60s)</h3>
+          <div class="pkg-price">$570 - $900</div>
+          <ul>
+            <li>Dedicated 60s native integration in 8-12 min episode</li>
+            <li>Top-of-description tracked link + pinned comment</li>
+            <li>Cross-linked from supporting Shorts via Related Video</li>
+          </ul>
+        </div>
+        <div class="pkg">
+          <h3>3x Cross-Post Launch Bundle</h3>
+          <div class="pkg-price">$840</div>
+          <ul>
+            <li>3 vertical drops over 14 days (9 total uploads)</li>
+            <li>Ideal for mobile/PC game launches, VPN &amp; AI apps</li>
+            <li>Hybrid flat + CPA performance option available</li>
+          </ul>
+        </div>
+      </div>
+    </section>
+
+    <footer class="note">
+      <span>Best Fit Categories: Mobile &amp; PC Games, VPNs, Gaming Browsers, AI Apps, Peripherals</span>
+      <span>Contact: sponsors@example.com</span>
+    </footer>
+  </article>
+</body>
+</html>
